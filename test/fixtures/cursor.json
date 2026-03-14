@@ -1,0 +1,103 @@
+[
+  {
+    "name": "CUP - move cursor to specific position",
+    "cols": 20,
+    "rows": 10,
+    "input": "\\e[5;10H",
+    "expect": {
+      "cursor": { "row": 4, "col": 9 }
+    }
+  },
+  {
+    "name": "CUP - default position (home)",
+    "cols": 20,
+    "rows": 10,
+    "input": "Hello\\e[H",
+    "expect": {
+      "cursor": { "row": 0, "col": 0 },
+      "rowText": [{ "row": 0, "text": "Hello" }]
+    }
+  },
+  {
+    "name": "CUU - cursor up",
+    "cols": 20,
+    "rows": 10,
+    "input": "\\e[5;5HABC\\e[2A",
+    "expect": {
+      "cursor": { "row": 2, "col": 7 }
+    }
+  },
+  {
+    "name": "CUD - cursor down",
+    "cols": 20,
+    "rows": 10,
+    "input": "\\e[1;1H\\e[3B",
+    "expect": {
+      "cursor": { "row": 3, "col": 0 }
+    }
+  },
+  {
+    "name": "CUF - cursor forward",
+    "cols": 20,
+    "rows": 10,
+    "input": "\\e[1;1H\\e[5C",
+    "expect": {
+      "cursor": { "row": 0, "col": 5 }
+    }
+  },
+  {
+    "name": "CUB - cursor back",
+    "cols": 20,
+    "rows": 10,
+    "input": "\\e[1;10H\\e[3D",
+    "expect": {
+      "cursor": { "row": 0, "col": 6 }
+    }
+  },
+  {
+    "name": "CUU - clamp at top edge",
+    "cols": 20,
+    "rows": 10,
+    "input": "\\e[2;1H\\e[99A",
+    "expect": {
+      "cursor": { "row": 0, "col": 0 }
+    }
+  },
+  {
+    "name": "CUD - clamp at bottom edge",
+    "cols": 20,
+    "rows": 10,
+    "input": "\\e[1;1H\\e[99B",
+    "expect": {
+      "cursor": { "row": 9, "col": 0 }
+    }
+  },
+  {
+    "name": "CUF - clamp at right edge",
+    "cols": 20,
+    "rows": 10,
+    "input": "\\e[1;1H\\e[99C",
+    "expect": {
+      "cursor": { "row": 0, "col": 19 }
+    }
+  },
+  {
+    "name": "CUB - clamp at left edge",
+    "cols": 20,
+    "rows": 10,
+    "input": "\\e[1;5H\\e[99D",
+    "expect": {
+      "cursor": { "row": 0, "col": 0 }
+    }
+  },
+  {
+    "name": "CUP - write text at specific position",
+    "cols": 20,
+    "rows": 10,
+    "input": "\\e[3;5HTest",
+    "expect": {
+      "cursor": { "row": 2, "col": 8 },
+      "rowText": [{ "row": 2, "text": "    Test" }]
+    }
+  }
+]

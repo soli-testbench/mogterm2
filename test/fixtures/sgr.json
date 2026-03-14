@@ -1,0 +1,102 @@
+[
+  {
+    "name": "SGR bold",
+    "cols": 20,
+    "rows": 5,
+    "input": "\\e[1mBold\\e[0m",
+    "expect": {
+      "cursor": { "row": 0, "col": 4 },
+      "cells": [
+        { "row": 0, "col": 0, "char": "B", "bold": true },
+        { "row": 0, "col": 1, "char": "o", "bold": true },
+        { "row": 0, "col": 2, "char": "l", "bold": true },
+        { "row": 0, "col": 3, "char": "d", "bold": true }
+      ]
+    }
+  },
+  {
+    "name": "SGR reset clears bold",
+    "cols": 20,
+    "rows": 5,
+    "input": "\\e[1mBold\\e[0mNormal",
+    "expect": {
+      "cells": [
+        { "row": 0, "col": 0, "char": "B", "bold": true },
+        { "row": 0, "col": 4, "char": "N", "bold": false },
+        { "row": 0, "col": 5, "char": "o", "bold": false }
+      ]
+    }
+  },
+  {
+    "name": "SGR foreground color (red)",
+    "cols": 20,
+    "rows": 5,
+    "input": "\\e[31mRed\\e[0m",
+    "expect": {
+      "cells": [
+        { "row": 0, "col": 0, "char": "R", "fg": 1 },
+        { "row": 0, "col": 1, "char": "e", "fg": 1 },
+        { "row": 0, "col": 2, "char": "d", "fg": 1 }
+      ]
+    }
+  },
+  {
+    "name": "SGR background color (green)",
+    "cols": 20,
+    "rows": 5,
+    "input": "\\e[42mGrn\\e[0m",
+    "expect": {
+      "cells": [
+        { "row": 0, "col": 0, "char": "G", "bg": 2 },
+        { "row": 0, "col": 1, "char": "r", "bg": 2 },
+        { "row": 0, "col": 2, "char": "n", "bg": 2 }
+      ]
+    }
+  },
+  {
+    "name": "SGR combined bold + fg + bg",
+    "cols": 20,
+    "rows": 5,
+    "input": "\\e[1;33;44mX\\e[0m",
+    "expect": {
+      "cells": [
+        { "row": 0, "col": 0, "char": "X", "bold": true, "fg": 3, "bg": 4 }
+      ]
+    }
+  },
+  {
+    "name": "SGR default fg resets foreground",
+    "cols": 20,
+    "rows": 5,
+    "input": "\\e[31mR\\e[39mD",
+    "expect": {
+      "cells": [
+        { "row": 0, "col": 0, "char": "R", "fg": 1 },
+        { "row": 0, "col": 1, "char": "D", "fg": null }
+      ]
+    }
+  },
+  {
+    "name": "SGR default bg resets background",
+    "cols": 20,
+    "rows": 5,
+    "input": "\\e[42mG\\e[49mD",
+    "expect": {
+      "cells": [
+        { "row": 0, "col": 0, "char": "G", "bg": 2 },
+        { "row": 0, "col": 1, "char": "D", "bg": null }
+      ]
+    }
+  },
+  {
+    "name": "SGR bright foreground color",
+    "cols": 20,
+    "rows": 5,
+    "input": "\\e[91mB",
+    "expect": {
+      "cells": [
+        { "row": 0, "col": 0, "char": "B", "fg": 9 }
+      ]
+    }
+  }
+]

@@ -1,0 +1,74 @@
+[
+  {
+    "name": "ED 0 - erase from cursor to end of display",
+    "cols": 10,
+    "rows": 3,
+    "input": "\\e[1;1HAAAAAAAAAA\\e[2;1HBBBBBBBBBB\\e[3;1HCCCCCCCCCC\\e[2;4H\\e[0J",
+    "expect": {
+      "cursor": { "row": 1, "col": 3 },
+      "rowText": [
+        { "row": 0, "text": "AAAAAAAAAA" },
+        { "row": 1, "text": "BBB" },
+        { "row": 2, "text": "" }
+      ]
+    }
+  },
+  {
+    "name": "ED 1 - erase from start to cursor",
+    "cols": 10,
+    "rows": 3,
+    "input": "\\e[1;1HAAAAAAAAAA\\e[2;1HBBBBBBBBBB\\e[3;1HCCCCCCCCCC\\e[2;4H\\e[1J",
+    "expect": {
+      "cursor": { "row": 1, "col": 3 },
+      "rowText": [
+        { "row": 0, "text": "" },
+        { "row": 1, "text": "    BBBBBB" },
+        { "row": 2, "text": "CCCCCCCCCC" }
+      ]
+    }
+  },
+  {
+    "name": "ED 2 - erase entire display",
+    "cols": 10,
+    "rows": 3,
+    "input": "\\e[1;1HAAAAAAAAAA\\e[2;1HBBBBBBBBBB\\e[3;1HCCCCCCCCCC\\e[2J",
+    "expect": {
+      "cursor": { "row": 2, "col": 10 },
+      "rowText": [
+        { "row": 0, "text": "" },
+        { "row": 1, "text": "" },
+        { "row": 2, "text": "" }
+      ]
+    }
+  },
+  {
+    "name": "EL 0 - erase from cursor to end of line",
+    "cols": 10,
+    "rows": 3,
+    "input": "ABCDEFGHIJ\\e[1;4H\\e[0K",
+    "expect": {
+      "cursor": { "row": 0, "col": 3 },
+      "rowText": [{ "row": 0, "text": "ABC" }]
+    }
+  },
+  {
+    "name": "EL 1 - erase from start of line to cursor",
+    "cols": 10,
+    "rows": 3,
+    "input": "ABCDEFGHIJ\\e[1;4H\\e[1K",
+    "expect": {
+      "cursor": { "row": 0, "col": 3 },
+      "rowText": [{ "row": 0, "text": "    EFGHIJ" }]
+    }
+  },
+  {
+    "name": "EL 2 - erase entire line",
+    "cols": 10,
+    "rows": 3,
+    "input": "ABCDEFGHIJ\\e[1;4H\\e[2K",
+    "expect": {
+      "cursor": { "row": 0, "col": 3 },
+      "rowText": [{ "row": 0, "text": "" }]
+    }
+  }
+]
