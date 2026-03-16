@@ -1,0 +1,59 @@
+[
+  {
+    "name": "basic text output - single line",
+    "cols": 20,
+    "rows": 5,
+    "input": "Hello",
+    "expect": {
+      "cursor": { "row": 0, "col": 5 },
+      "rowText": [{ "row": 0, "text": "Hello" }],
+      "cells": [
+        { "row": 0, "col": 0, "char": "H" },
+        { "row": 0, "col": 4, "char": "o" }
+      ]
+    }
+  },
+  {
+    "name": "basic text output - multiple characters",
+    "cols": 20,
+    "rows": 5,
+    "input": "ABCDE",
+    "expect": {
+      "cursor": { "row": 0, "col": 5 },
+      "rowText": [{ "row": 0, "text": "ABCDE" }]
+    }
+  },
+  {
+    "name": "CR+LF moves to start of next row",
+    "cols": 20,
+    "rows": 5,
+    "input": "AB\\r\\nCD",
+    "expect": {
+      "cursor": { "row": 1, "col": 2 },
+      "rowText": [
+        { "row": 0, "text": "AB" },
+        { "row": 1, "text": "CD" }
+      ]
+    }
+  },
+  {
+    "name": "carriage return resets column",
+    "cols": 20,
+    "rows": 5,
+    "input": "Hello\\rWorld",
+    "expect": {
+      "cursor": { "row": 0, "col": 5 },
+      "rowText": [{ "row": 0, "text": "World" }]
+    }
+  },
+  {
+    "name": "backspace moves cursor back",
+    "cols": 20,
+    "rows": 5,
+    "input": "AB\\x08C",
+    "expect": {
+      "cursor": { "row": 0, "col": 2 },
+      "rowText": [{ "row": 0, "text": "AC" }]
+    }
+  }
+]

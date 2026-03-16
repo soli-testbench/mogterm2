@@ -1,0 +1,55 @@
+[
+  {
+    "name": "line wrapping at right margin",
+    "cols": 5,
+    "rows": 5,
+    "input": "ABCDEFGH",
+    "expect": {
+      "cursor": { "row": 1, "col": 3 },
+      "rowText": [
+        { "row": 0, "text": "ABCDE" },
+        { "row": 1, "text": "FGH" }
+      ]
+    }
+  },
+  {
+    "name": "line wrapping fills multiple rows",
+    "cols": 3,
+    "rows": 5,
+    "input": "ABCDEFGHI",
+    "expect": {
+      "cursor": { "row": 2, "col": 3 },
+      "rowText": [
+        { "row": 0, "text": "ABC" },
+        { "row": 1, "text": "DEF" },
+        { "row": 2, "text": "GHI" }
+      ]
+    }
+  },
+  {
+    "name": "scroll when wrapping past last row",
+    "cols": 5,
+    "rows": 2,
+    "input": "AAAAABBBBBCCC",
+    "expect": {
+      "cursor": { "row": 1, "col": 3 },
+      "rowText": [
+        { "row": 0, "text": "BBBBB" },
+        { "row": 1, "text": "CCC" }
+      ]
+    }
+  },
+  {
+    "name": "exact fill does not wrap prematurely",
+    "cols": 5,
+    "rows": 2,
+    "input": "ABCDE",
+    "expect": {
+      "cursor": { "row": 0, "col": 5 },
+      "rowText": [
+        { "row": 0, "text": "ABCDE" },
+        { "row": 1, "text": "" }
+      ]
+    }
+  }
+]
