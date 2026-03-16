@@ -1,0 +1,12 @@
+{
+  "name": "mogterm",
+  "version": "0.1.0",
+  "description": "MogTerm - A virtual terminal emulator engine for the browser",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "test": "node test/terminal.test.js",
+    "demo": "python3 -m http.server 8080"
+  },
+  "license": "MIT"
+}
