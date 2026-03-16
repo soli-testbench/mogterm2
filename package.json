@@ -1,9 +1,10 @@
 {
-  "name": "mogterm",
+  "name": "mogterm2",
   "version": "0.1.0",
   "description": "MogTerm terminal emulator engine with automated test suite",
   "type": "module",
   "scripts": {
+    "start": "node server.js",
     "build": "tsc",
     "test": "tsx --test test/**/*.test.ts",
     "test:ci": "tsx --test test/**/*.test.ts"
