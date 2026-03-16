@@ -1,7 +1,12 @@
-const http = require("http");
+import { createServer } from "node:http";
+
 const port = process.env.PORT || 8080;
-const server = http.createServer((req, res) => {
+
+const server = createServer((req, res) => {
   res.writeHead(200, { "Content-Type": "text/plain" });
-  res.end("mogterm2 is running\n");
+  res.end("Hello from mogterm2!\n");
 });
-server.listen(port, () => console.log("listening on port " + port));
+
+server.listen(port, () => {
+  console.log(`Server listening on port ${port}`);
+});
