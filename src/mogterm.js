@@ -15,6 +15,8 @@ class Mogterm {
     this.inputBuffer = '';
     this.cursorPos = 0;
     this.focused = false;
+    this._isTyping = false;
+    this._typingTimer = null;
 
     this._init();
   }
@@ -76,7 +78,16 @@ class Mogterm {
         this.inputBuffer.slice(this.cursorPos);
       this.cursorPos++;
       this._render();
+    } else {
+      return;
     }
+
+    this._isTyping = true;
+    clearTimeout(this._typingTimer);
+    this._typingTimer = setTimeout(() => {
+      this._isTyping = false;
+      this._render();
+    }, 1000);
   }
 
   _submit() {
@@ -132,6 +143,9 @@ class Mogterm {
 
     const cursor = document.createElement('span');
     cursor.className = 'mogterm-cursor';
+    if (this._isTyping) {
+      cursor.classList.add('mogterm-cursor--typing');
+    }
     const cursorText = document.createElement('span');
     cursorText.className = 'mogterm-cursor-char';
     cursorText.textContent = cursorChar;
