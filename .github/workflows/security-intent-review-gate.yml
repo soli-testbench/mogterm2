@@ -271,6 +271,7 @@ jobs:
           github_token: ${{ github.token }}
           use_sticky_comment: false
           show_full_output: true
+          allowed_bots: '*'
           claude_args: >-
             --model claude-opus-4-6
             --max-turns 50
