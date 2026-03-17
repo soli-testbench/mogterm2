@@ -61,20 +61,50 @@ jobs:
             exit 1
           fi
 
-      - name: Checkout review branch
+      - name: Checkout repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           fetch-depth: 0
-          ref: refs/heads/${{ inputs.branch }}
           persist-credentials: false
           clean: true
 
-      - name: Fetch comparison refs
+      - name: Checkout review branch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          if git fetch --no-tags origin "refs/heads/${REVIEW_BRANCH}" 2>/dev/null; then
+            echo "Review branch found in origin"
+            git checkout -B "$REVIEW_BRANCH" FETCH_HEAD
+          else
+            echo "Review branch not in origin, looking up PR to find fork..."
+            PR_JSON=$(gh pr list --repo "${{ github.repository }}" \
+              --head "$REVIEW_BRANCH" \
+              --json headRepositoryOwner,headRepository \
+              --jq '.[0]')
+
+            if [ -z "$PR_JSON" ] || [ "$PR_JSON" = "null" ]; then
+              echo "::error::Branch '${REVIEW_BRANCH}' not found in repo or any open PR"
+              exit 1
+            fi
+
+            FORK_OWNER=$(echo "$PR_JSON" | jq -r '.headRepositoryOwner.login')
+            FORK_REPO=$(echo "$PR_JSON" | jq -r '.headRepository.name')
+            FORK_URL="https://github.com/${FORK_OWNER}/${FORK_REPO}.git"
+
+            echo "Review branch found in fork: ${FORK_OWNER}/${FORK_REPO}"
+            git remote add fork "$FORK_URL"
+            git fetch --no-tags fork "refs/heads/${REVIEW_BRANCH}"
+            git checkout -B "$REVIEW_BRANCH" FETCH_HEAD
+          fi
+
+      - name: Fetch base branch
         shell: bash
         run: |
           set -euo pipefail
           git fetch --no-tags origin "refs/heads/${BASE_BRANCH}:refs/remotes/origin/${BASE_BRANCH}" --depth=1
-          git fetch --no-tags origin "refs/heads/${REVIEW_BRANCH}:refs/remotes/origin/${REVIEW_BRANCH}" --depth=1
 
       - name: Resolve review range
         id: refs
