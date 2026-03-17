@@ -392,6 +392,7 @@ jobs:
         uses: openai/codex-action@086169432f1d2ab2f4057540b1754d550f6a1189 # v1.4
         with:
           openai-api-key: ${{ secrets.ORG_OPENAI_API_KEY }}
+          allow-bots: true
           sandbox: danger-full-access
           safety-strategy: unsafe
           output-file: .contextgen/security_review/codex_response_raw.json
