@@ -44,6 +44,13 @@ export class Renderer {
     this.container.style.whiteSpace = 'pre';
     this.container.style.position = 'relative';
     this.container.innerHTML = '';
+
+    const style = document.createElement('style');
+    style.textContent =
+      '.mogterm-vt-cursor { animation: mogterm-vt-blink 1s ease-in-out infinite; }' +
+      '@keyframes mogterm-vt-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }' +
+      '@media (prefers-reduced-motion: reduce) { .mogterm-vt-cursor { animation: none; } }';
+    this.container.appendChild(style);
   }
 
   /**
@@ -69,6 +76,7 @@ export class Renderer {
         if (r === state.cursorRow && c === state.cursorCol && state.cursorVisible) {
           styles.backgroundColor = this.cursorColor;
           styles.color = this.bgColor;
+          span.classList.add('mogterm-vt-cursor');
         }
 
         if (styles.color) span.style.color = styles.color;

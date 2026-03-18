@@ -29,7 +29,12 @@
   height: 1.1em;
   background: #d4d4d4;
   vertical-align: text-bottom;
-  animation: mogterm-blink 1s step-end infinite;
+  animation: mogterm-blink 1s ease-in-out infinite;
+}
+
+.mogterm-cursor--typing {
+  animation: none;
+  opacity: 1;
 }
 
 .mogterm:not(:focus) .mogterm-cursor {
@@ -46,4 +51,11 @@
 @keyframes mogterm-blink {
   0%, 100% { opacity: 1; }
   50% { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mogterm-cursor {
+    animation: none;
+    opacity: 1;
+  }
 }
