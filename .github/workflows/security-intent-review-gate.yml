@@ -29,7 +29,7 @@ jobs:
       BASE_BRANCH: main
       REVIEW_BRANCH: ${{ inputs.branch }}
       TASK_ID: ${{ inputs.task_id }}
-      SECURITY_INTENT_REVIEW_BASE_URL: ${{ vars.SECURITY_INTENT_REVIEW_BASE_URL }}
+      SECURITY_INTENT_REVIEW_BASE_URL: ${{ secrets.SECURITY_INTENT_REVIEW_BASE_URL }}
       SECURITY_INTENT_REVIEW_API_KEY: ${{ secrets.INTERNAL_API_KEY }}
       SECURITY_REVIEW_FAIL_ON: needs_review
     steps:
@@ -77,72 +77,38 @@ jobs:
         run: |
           set -euo pipefail
 
-          SHORT_ID="${TASK_ID:0:8}"
-          PR_JSON=$(gh pr list --repo "${{ github.repository }}" \
-            --state open \
-            --json headRefName,headRepositoryOwner,headRepository \
-            --jq "[.[] | select(.headRefName | contains(\"${SHORT_ID}\"))][0]")
+          if git fetch --no-tags origin "refs/heads/${REVIEW_BRANCH}" 2>/dev/null; then
+            echo "Review branch found in origin"
+            git checkout -B "$REVIEW_BRANCH" FETCH_HEAD
+          else
+            echo "Review branch not in origin, looking up PR to find fork..."
+            PR_JSON=$(gh pr list --repo "${{ github.repository }}" \
+              --head "$REVIEW_BRANCH" \
+              --json headRepositoryOwner,headRepository \
+              --jq '.[0]')
 
-          if [ -z "$PR_JSON" ] || [ "$PR_JSON" = "null" ]; then
-            echo "::error::No open PR found for task ${TASK_ID} (searched branch containing ${SHORT_ID})"
-            exit 1
+            if [ -z "$PR_JSON" ] || [ "$PR_JSON" = "null" ]; then
+              echo "::error::Branch '${REVIEW_BRANCH}' not found in repo or any open PR"
+              exit 1
+            fi
+
+            FORK_OWNER=$(echo "$PR_JSON" | jq -r '.headRepositoryOwner.login')
+            FORK_REPO=$(echo "$PR_JSON" | jq -r '.headRepository.name')
+            FORK_URL="https://github.com/${FORK_OWNER}/${FORK_REPO}.git"
+
+            echo "Review branch found in fork: ${FORK_OWNER}/${FORK_REPO}"
+            git remote add fork "$FORK_URL"
+            git fetch --no-tags fork "refs/heads/${REVIEW_BRANCH}"
+            git checkout -B "$REVIEW_BRANCH" FETCH_HEAD
           fi
 
-          BRANCH=$(echo "$PR_JSON" | jq -r '.headRefName')
-          FORK_OWNER=$(echo "$PR_JSON" | jq -r '.headRepositoryOwner.login')
-          FORK_REPO=$(echo "$PR_JSON" | jq -r '.headRepository.name')
-          FORK_URL="https://github.com/${FORK_OWNER}/${FORK_REPO}.git"
-
-          echo "Found PR branch: ${BRANCH} in ${FORK_OWNER}/${FORK_REPO}"
-          git remote add fork "$FORK_URL" 2>/dev/null || true
-          git fetch --no-tags fork "refs/heads/${BRANCH}"
-          git checkout -B "$BRANCH" FETCH_HEAD
-
-          if [ "$BRANCH" != "$REVIEW_BRANCH" ]; then
-            echo "Overriding REVIEW_BRANCH: ${REVIEW_BRANCH} -> ${BRANCH}"
-            echo "REVIEW_BRANCH=${BRANCH}" >> "$GITHUB_ENV"
-          fi
-
-      - name: Fetch base branch and check for conflicts
-        id: conflicts
+      - name: Fetch base branch
         shell: bash
         run: |
           set -euo pipefail
           git fetch --no-tags origin "refs/heads/${BASE_BRANCH}:refs/remotes/origin/${BASE_BRANCH}"
 
-          if ! git merge --no-commit --no-ff "origin/${BASE_BRANCH}" 2>/dev/null; then
-            git merge --abort 2>/dev/null || true
-            echo "has_conflicts=true" >> "$GITHUB_OUTPUT"
-            echo "::warning::PR branch has merge conflicts with ${BASE_BRANCH}. Posting rejection."
-
-            mkdir -p .contextgen/security_review
-            CONFLICT_MSG="PR branch has merge conflicts with ${BASE_BRANCH}. Agent must rebase onto latest ${BASE_BRANCH} and resolve conflicts before review."
-            jq -n \
-              --arg branch "$REVIEW_BRANCH" \
-              --arg task_id "$TASK_ID" \
-              --arg base_branch "$BASE_BRANCH" \
-              --arg msg "$CONFLICT_MSG" \
-              '{
-                branch: $branch,
-                task_id: $task_id,
-                base_branch: $base_branch,
-                base_sha: "unknown",
-                head_sha: "unknown",
-                final_decision: "block",
-                average_approval_score: 0,
-                heuristic: {decision: "block", reason: "merge_conflicts", approval_score: 0},
-                claude: {summary: $msg, verdict: "block", approval_score: 0, findings: [], recommended_actions: ["Rebase branch onto latest main and resolve merge conflicts"]},
-                codex: {summary: $msg, verdict: "block", approval_score: 0, findings: [], recommended_actions: ["Rebase branch onto latest main and resolve merge conflicts"]},
-                recommended_actions: ["Rebase branch onto latest main and resolve merge conflicts"]
-              }' > .contextgen/security_review/security_review.json
-            exit 0
-          fi
-          git merge --abort 2>/dev/null || true
-          echo "has_conflicts=false" >> "$GITHUB_OUTPUT"
-          echo "No conflicts with ${BASE_BRANCH}"
-
       - name: Resolve review range
-        if: steps.conflicts.outputs.has_conflicts != 'true'
         id: refs
         shell: bash
         run: |
@@ -158,7 +124,6 @@ jobs:
           echo "changed_count=${CHANGED_COUNT}" >> "$GITHUB_OUTPUT"
 
       - name: Preflight task context fetch
-        if: steps.conflicts.outputs.has_conflicts != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -188,7 +153,6 @@ jobs:
           fi
 
       - name: Heuristic pre-filter
-        if: steps.conflicts.outputs.has_conflicts != 'true'
         id: heuristic
         shell: bash
         run: |
@@ -265,7 +229,6 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Prepare review config
-        if: steps.conflicts.outputs.has_conflicts != 'true'
         id: config
         shell: bash
         run: |
@@ -313,7 +276,6 @@ jobs:
           echo "schema=${SCHEMA_COMPACT}" >> "$GITHUB_OUTPUT"
 
       - name: Claude review
-        if: steps.conflicts.outputs.has_conflicts != 'true'
         id: claude_review
         timeout-minutes: 15
         uses: anthropics/claude-code-action@26ec041249acb0a944c0a47b6c0c13f05dbc5b44 # v1.0.70
@@ -462,7 +424,7 @@ jobs:
             STEP 6 - Return your structured JSON assessment.
 
       - name: Persist Claude response
-        if: ${{ !cancelled() && steps.conflicts.outputs.has_conflicts != 'true' && steps.claude_review.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.claude_review.outcome == 'success' }}
         shell: bash
         env:
           CLAUDE_OUTPUT: ${{ steps.claude_review.outputs.structured_output }}
@@ -472,7 +434,7 @@ jobs:
           printf '%s\n' "$CLAUDE_OUTPUT" > .contextgen/security_review/claude_response_raw.json
 
       - name: Claude fallback on failure
-        if: ${{ !cancelled() && steps.conflicts.outputs.has_conflicts != 'true' && steps.claude_review.outcome == 'failure' }}
+        if: ${{ !cancelled() && steps.claude_review.outcome == 'failure' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -501,7 +463,7 @@ jobs:
           }' > .contextgen/security_review/claude_response_raw.json
 
       - name: Codex review
-        if: ${{ !cancelled() && steps.conflicts.outputs.has_conflicts != 'true' }}
+        if: ${{ !cancelled() }}
         id: codex_review
         timeout-minutes: 15
         uses: openai/codex-action@086169432f1d2ab2f4057540b1754d550f6a1189 # v1.4
@@ -650,7 +612,7 @@ jobs:
             STEP 6 - Return your structured JSON assessment.
 
       - name: Codex fallback on failure
-        if: ${{ !cancelled() && steps.conflicts.outputs.has_conflicts != 'true' && steps.codex_review.outcome == 'failure' }}
+        if: ${{ !cancelled() && steps.codex_review.outcome == 'failure' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -679,7 +641,7 @@ jobs:
           }' > .contextgen/security_review/codex_response_raw.json
 
       - name: Combine decisions
-        if: ${{ always() && steps.conflicts.outputs.has_conflicts != 'true' }}
+        if: always()
         shell: bash
         env:
           BASE_SHA: ${{ steps.refs.outputs.base_sha }}
@@ -752,7 +714,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Log combined review result
-        if: ${{ always() && steps.conflicts.outputs.has_conflicts != 'true' }}
+        if: always()
         shell: bash
         run: |
           set -euo pipefail
@@ -785,22 +747,18 @@ jobs:
             exit 0
           fi
 
-          PR_NUMBER=""
-          # Try exact branch match (covers both origin and fork PRs)
-          PR_NUMBER="$(gh pr list --repo "${GITHUB_REPOSITORY}" \
-            --state open \
-            --json headRefName,number \
-            --jq "[.[] | select(.headRefName == \"${REVIEW_BRANCH}\")][0].number // empty" 2>/dev/null || true)"
+          HEAD_QUERY="$(jq -nr --arg head "${GITHUB_REPOSITORY_OWNER}:${REVIEW_BRANCH}" '$head|@uri')"
+          PRS_JSON="$(
+            curl \
+              --fail \
+              --silent \
+              --show-error \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/pulls?state=open&head=${HEAD_QUERY}&per_page=1"
+          )"
 
-          # Fallback: search by task ID prefix
-          if [ -z "$PR_NUMBER" ]; then
-            SHORT_ID="${TASK_ID:0:8}"
-            PR_NUMBER="$(gh pr list --repo "${GITHUB_REPOSITORY}" \
-              --state open \
-              --json headRefName,number \
-              --jq "[.[] | select(.headRefName | contains(\"${SHORT_ID}\"))][0].number // empty" 2>/dev/null || true)"
-          fi
-
+          PR_NUMBER="$(printf '%s' "$PRS_JSON" | jq -r '.[0].number // empty')"
           if [ -z "$PR_NUMBER" ]; then
             echo "::notice::No open PR found for branch ${REVIEW_BRANCH}. Skipping PR comment."
             exit 0
