@@ -381,6 +381,54 @@ test('Terminal: erase in display mode 1 (above)', () => {
   assertEqual(t.cells[2][0].char, 'C', 'row 2 preserved');
 });
 
+// ─── Bell tests ─────────────────────────────────────────────
+
+test('Terminal: BEL triggers onBell callback', () => {
+  const t = new Terminal(80, 24);
+  let bellCount = 0;
+  t.onBell = () => bellCount++;
+  t.write('\x07');
+  assertEqual(bellCount, 1, 'bell triggered once');
+});
+
+test('Terminal: BEL with surrounding text', () => {
+  const t = new Terminal(80, 24);
+  let bellCount = 0;
+  t.onBell = () => bellCount++;
+  t.write('Hello\x07World');
+  assertEqual(bellCount, 1, 'bell triggered once during text');
+  assertEqual(t.cells[0][0].char, 'H', 'text before bell intact');
+  assertEqual(t.cells[0][5].char, 'W', 'text after bell intact');
+});
+
+test('Terminal: OSC-terminating BEL does NOT trigger onBell', () => {
+  const t = new Terminal(80, 24);
+  let bellCount = 0;
+  t.onBell = () => bellCount++;
+  t.write('\x1b]0;My Title\x07');
+  assertEqual(bellCount, 0, 'bell NOT triggered for OSC BEL');
+  assertEqual(t.title, 'My Title', 'title was set correctly');
+});
+
+test('Terminal: multiple BEL characters', () => {
+  const t = new Terminal(80, 24);
+  let bellCount = 0;
+  t.onBell = () => bellCount++;
+  t.write('\x07\x07\x07');
+  assertEqual(bellCount, 3, 'bell triggered three times');
+});
+
+test('Terminal: BEL without onBell callback does not throw', () => {
+  const t = new Terminal(80, 24);
+  let threw = false;
+  try {
+    t.write('\x07');
+  } catch (e) {
+    threw = true;
+  }
+  assert(!threw, 'no error when onBell is null');
+});
+
 // ─── Summary ─────────────────────────────────────────────────
 
 console.log(`\n${passed} passed, ${failed} failed`);

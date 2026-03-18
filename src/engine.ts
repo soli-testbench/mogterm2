@@ -38,6 +38,7 @@ function emptyCell(): Cell {
 }
 
 export class MogTermEngine {
+  public onBell: (() => void) | null = null;
   private state: TerminalState;
   private parseState: "ground" | "escape" | "csi" = "ground";
   private csiParams: string = "";
@@ -90,6 +91,11 @@ export class MogTermEngine {
 
     if (code === 0x1b) {
       this.parseState = "escape";
+      return;
+    }
+
+    if (code === 0x07) { // BEL
+      this.onBell?.();
       return;
     }
 

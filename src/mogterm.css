@@ -47,3 +47,12 @@
   0%, 100% { opacity: 1; }
   50% { opacity: 0; }
 }
+
+.mogterm-bell-flash {
+  animation: mogterm-bell-flash 0.15s ease-out;
+}
+
+@keyframes mogterm-bell-flash {
+  0% { filter: brightness(1.8); }
+  100% { filter: brightness(1); }
+}

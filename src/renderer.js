@@ -18,7 +18,7 @@ export class Renderer {
    * @param {HTMLElement} container — DOM element to render into
    * @param {import('./terminal.js').Terminal} terminal
    */
-  constructor(container, terminal) {
+  constructor(container, terminal, options = {}) {
     this.container = container;
     this.terminal = terminal;
 
@@ -31,6 +31,11 @@ export class Renderer {
     this.cursorColor = '#ffffff';
 
     this._setup();
+
+    // Bell
+    this.bellStyle = options.bellStyle || 'both';
+    this._audioCtx = null;
+    terminal.onBell = () => this._handleBell();
   }
 
   _setup() {
@@ -86,6 +91,38 @@ export class Renderer {
 
     this.container.innerHTML = '';
     this.container.appendChild(fragment);
+  }
+
+  _handleBell() {
+    if (this.bellStyle === 'sound' || this.bellStyle === 'both') {
+      this._playBellSound();
+    }
+    if (this.bellStyle === 'visual' || this.bellStyle === 'both') {
+      this._flashBell();
+    }
+  }
+
+  _playBellSound() {
+    try {
+      if (!this._audioCtx) this._audioCtx = new AudioContext();
+      const osc = this._audioCtx.createOscillator();
+      const gain = this._audioCtx.createGain();
+      osc.connect(gain);
+      gain.connect(this._audioCtx.destination);
+      osc.frequency.value = 800;
+      gain.gain.value = 0.3;
+      osc.start();
+      osc.stop(this._audioCtx.currentTime + 0.2);
+    } catch (e) {
+      // AudioContext not available (e.g., Node.js environment)
+    }
+  }
+
+  _flashBell() {
+    this.container.classList.add('mogterm-bell-flash');
+    setTimeout(() => {
+      this.container.classList.remove('mogterm-bell-flash');
+    }, 150);
   }
 
   _cellStyle(attr) {
