@@ -77,30 +77,61 @@ jobs:
         run: |
           set -euo pipefail
 
+          checkout_from_fork() {
+            local owner="$1" repo="$2" branch="$3"
+            local url="https://github.com/${owner}/${repo}.git"
+            echo "Review branch found in fork: ${owner}/${repo} (branch: ${branch})"
+            git remote add fork "$url" 2>/dev/null || true
+            git fetch --no-tags fork "refs/heads/${branch}"
+            git checkout -B "$branch" FETCH_HEAD
+            if [ "$branch" != "$REVIEW_BRANCH" ]; then
+              echo "Overriding REVIEW_BRANCH: ${REVIEW_BRANCH} -> ${branch}"
+              echo "REVIEW_BRANCH=${branch}" >> "$GITHUB_ENV"
+            fi
+          }
+
+          # Try 1: exact branch name in origin
           if git fetch --no-tags origin "refs/heads/${REVIEW_BRANCH}" 2>/dev/null; then
             echo "Review branch found in origin"
             git checkout -B "$REVIEW_BRANCH" FETCH_HEAD
-          else
-            echo "Review branch not in origin, looking up PR to find fork..."
-            PR_JSON=$(gh pr list --repo "${{ github.repository }}" \
-              --state open \
-              --json headRefName,headRepositoryOwner,headRepository \
-              --jq "[.[] | select(.headRefName == \"${REVIEW_BRANCH}\")][0]")
-
-            if [ -z "$PR_JSON" ] || [ "$PR_JSON" = "null" ]; then
-              echo "::error::Branch '${REVIEW_BRANCH}' not found in repo or any open PR"
-              exit 1
-            fi
-
-            FORK_OWNER=$(echo "$PR_JSON" | jq -r '.headRepositoryOwner.login')
-            FORK_REPO=$(echo "$PR_JSON" | jq -r '.headRepository.name')
-            FORK_URL="https://github.com/${FORK_OWNER}/${FORK_REPO}.git"
-
-            echo "Review branch found in fork: ${FORK_OWNER}/${FORK_REPO}"
-            git remote add fork "$FORK_URL"
-            git fetch --no-tags fork "refs/heads/${REVIEW_BRANCH}"
-            git checkout -B "$REVIEW_BRANCH" FETCH_HEAD
+            exit 0
           fi
+
+          echo "Review branch not in origin, looking up PR to find fork..."
+
+          # Try 2: exact branch name match in open PRs
+          PR_JSON=$(gh pr list --repo "${{ github.repository }}" \
+            --state open \
+            --json headRefName,headRepositoryOwner,headRepository \
+            --jq "[.[] | select(.headRefName == \"${REVIEW_BRANCH}\")][0]")
+
+          if [ -n "$PR_JSON" ] && [ "$PR_JSON" != "null" ]; then
+            checkout_from_fork \
+              "$(echo "$PR_JSON" | jq -r '.headRepositoryOwner.login')" \
+              "$(echo "$PR_JSON" | jq -r '.headRepository.name')" \
+              "$REVIEW_BRANCH"
+            exit 0
+          fi
+
+          # Try 3: find PR whose branch contains the first 8 chars of the task ID
+          echo "Exact branch not found in PRs, searching by task ID prefix..."
+          SHORT_ID="${TASK_ID:0:8}"
+          PR_JSON=$(gh pr list --repo "${{ github.repository }}" \
+            --state open \
+            --json headRefName,headRepositoryOwner,headRepository \
+            --jq "[.[] | select(.headRefName | contains(\"${SHORT_ID}\"))][0]")
+
+          if [ -n "$PR_JSON" ] && [ "$PR_JSON" != "null" ]; then
+            RESOLVED_BRANCH=$(echo "$PR_JSON" | jq -r '.headRefName')
+            checkout_from_fork \
+              "$(echo "$PR_JSON" | jq -r '.headRepositoryOwner.login')" \
+              "$(echo "$PR_JSON" | jq -r '.headRepository.name')" \
+              "$RESOLVED_BRANCH"
+            exit 0
+          fi
+
+          echo "::error::Branch '${REVIEW_BRANCH}' not found in repo or any open PR (also tried task ID prefix ${SHORT_ID})"
+          exit 1
 
       - name: Fetch base branch
         shell: bash
@@ -747,18 +778,22 @@ jobs:
             exit 0
           fi
 
-          HEAD_QUERY="$(jq -nr --arg head "${GITHUB_REPOSITORY_OWNER}:${REVIEW_BRANCH}" '$head|@uri')"
-          PRS_JSON="$(
-            curl \
-              --fail \
-              --silent \
-              --show-error \
-              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-              -H "Accept: application/vnd.github+json" \
-              "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/pulls?state=open&head=${HEAD_QUERY}&per_page=1"
-          )"
+          PR_NUMBER=""
+          # Try exact branch match (covers both origin and fork PRs)
+          PR_NUMBER="$(gh pr list --repo "${GITHUB_REPOSITORY}" \
+            --state open \
+            --json headRefName,number \
+            --jq "[.[] | select(.headRefName == \"${REVIEW_BRANCH}\")][0].number // empty" 2>/dev/null || true)"
 
-          PR_NUMBER="$(printf '%s' "$PRS_JSON" | jq -r '.[0].number // empty')"
+          # Fallback: search by task ID prefix
+          if [ -z "$PR_NUMBER" ]; then
+            SHORT_ID="${TASK_ID:0:8}"
+            PR_NUMBER="$(gh pr list --repo "${GITHUB_REPOSITORY}" \
+              --state open \
+              --json headRefName,number \
+              --jq "[.[] | select(.headRefName | contains(\"${SHORT_ID}\"))][0].number // empty" 2>/dev/null || true)"
+          fi
+
           if [ -z "$PR_NUMBER" ]; then
             echo "::notice::No open PR found for branch ${REVIEW_BRANCH}. Skipping PR comment."
             exit 0
