@@ -69,6 +69,9 @@ export class Terminal {
     // Dirty flag for renderers
     this._dirty = true;
 
+    // Bell callback
+    this.onBell = null;
+
     // Parser
     this.parser = new Parser();
     this._bindParser();
@@ -137,6 +140,7 @@ export class Terminal {
   _execute(code) {
     switch (code) {
       case 0x07: // BEL
+        this.onBell?.();
         break;
       case 0x08: // BS — backspace
         if (this.cursorCol > 0) this.cursorCol--;

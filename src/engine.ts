@@ -42,6 +42,8 @@ export class MogTermEngine {
   private parseState: "ground" | "escape" | "csi" = "ground";
   private csiParams: string = "";
 
+  onBell: (() => void) | null = null;
+
   constructor(rows: number = 24, cols: number = 80) {
     this.state = {
       rows,
@@ -90,6 +92,11 @@ export class MogTermEngine {
 
     if (code === 0x1b) {
       this.parseState = "escape";
+      return;
+    }
+
+    if (code === 0x07) { // BEL
+      this.onBell?.();
       return;
     }
 
