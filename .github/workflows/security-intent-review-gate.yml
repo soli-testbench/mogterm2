@@ -71,36 +71,33 @@ jobs:
           clean: true
 
       - name: Checkout review branch
+        id: checkout_review
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          SHORT_ID="${TASK_ID:0:8}"
 
-          if git fetch --no-tags origin "refs/heads/${REVIEW_BRANCH}" 2>/dev/null; then
-            echo "Review branch found in origin"
-            git checkout -B "$REVIEW_BRANCH" FETCH_HEAD
-          else
-            echo "Review branch not in origin, looking up PR to find fork..."
-            PR_JSON=$(gh pr list --repo "${{ github.repository }}" \
-              --head "$REVIEW_BRANCH" \
-              --json headRepositoryOwner,headRepository \
-              --jq '.[0]')
+          PR_JSON=$(gh pr list --repo "${{ github.repository }}" --state open \
+            --json headRefName,headRepositoryOwner,headRepository \
+            --jq "[.[] | select(.headRefName | contains(\"${SHORT_ID}\"))][0]")
 
-            if [ -z "$PR_JSON" ] || [ "$PR_JSON" = "null" ]; then
-              echo "::error::Branch '${REVIEW_BRANCH}' not found in repo or any open PR"
-              exit 1
-            fi
-
-            FORK_OWNER=$(echo "$PR_JSON" | jq -r '.headRepositoryOwner.login')
-            FORK_REPO=$(echo "$PR_JSON" | jq -r '.headRepository.name')
-            FORK_URL="https://github.com/${FORK_OWNER}/${FORK_REPO}.git"
-
-            echo "Review branch found in fork: ${FORK_OWNER}/${FORK_REPO}"
-            git remote add fork "$FORK_URL"
-            git fetch --no-tags fork "refs/heads/${REVIEW_BRANCH}"
-            git checkout -B "$REVIEW_BRANCH" FETCH_HEAD
+          if [ -z "$PR_JSON" ] || [ "$PR_JSON" = "null" ]; then
+            echo "::error::No open PR found matching task ID prefix ${SHORT_ID}"
+            exit 1
           fi
+
+          BRANCH=$(echo "$PR_JSON" | jq -r '.headRefName')
+          OWNER=$(echo "$PR_JSON" | jq -r '.headRepositoryOwner.login')
+          REPO=$(echo "$PR_JSON" | jq -r '.headRepository.name')
+
+          echo "Found branch ${BRANCH} in ${OWNER}/${REPO}"
+          git remote add fork "https://github.com/${OWNER}/${REPO}.git" 2>/dev/null || true
+          git fetch --no-tags fork "refs/heads/${BRANCH}"
+          git checkout -B "$BRANCH" FETCH_HEAD
+
+          [ "$BRANCH" != "$REVIEW_BRANCH" ] && echo "REVIEW_BRANCH=${BRANCH}" >> "$GITHUB_ENV"
 
       - name: Fetch base branch
         shell: bash
