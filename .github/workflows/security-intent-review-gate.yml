@@ -97,7 +97,9 @@ jobs:
           git fetch --no-tags fork "refs/heads/${BRANCH}"
           git checkout -B "$BRANCH" FETCH_HEAD
 
-          [ "$BRANCH" != "$REVIEW_BRANCH" ] && echo "REVIEW_BRANCH=${BRANCH}" >> "$GITHUB_ENV"
+          if [ "$BRANCH" != "$REVIEW_BRANCH" ]; then
+            echo "REVIEW_BRANCH=${BRANCH}" >> "$GITHUB_ENV"
+          fi
 
       - name: Fetch base branch
         shell: bash
