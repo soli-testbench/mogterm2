@@ -381,6 +381,22 @@ test('Terminal: erase in display mode 1 (above)', () => {
   assertEqual(t.cells[2][0].char, 'C', 'row 2 preserved');
 });
 
+test('Terminal: BEL triggers onBell callback', () => {
+  const t = new Terminal(80, 24);
+  let bellCount = 0;
+  t.onBell = () => { bellCount++; };
+  t.write('\x07');
+  assertEqual(bellCount, 1, 'onBell called once');
+  t.write('\x07\x07');
+  assertEqual(bellCount, 3, 'onBell called for each BEL');
+});
+
+test('Terminal: BEL without handler does not throw', () => {
+  const t = new Terminal(80, 24);
+  t.write('\x07');
+  assert(true, 'no error thrown when onBell is null');
+});
+
 // ─── Summary ─────────────────────────────────────────────────
 
 console.log(`\n${passed} passed, ${failed} failed`);

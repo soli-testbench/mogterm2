@@ -31,6 +31,7 @@ export class Renderer {
     this.cursorColor = '#ffffff';
 
     this._setup();
+    this.terminal.onBell = () => this._visualBell();
   }
 
   _setup() {
@@ -137,6 +138,13 @@ export class Renderer {
       }
     }
     return this.fgColor;
+  }
+
+  _visualBell() {
+    this.container.classList.add('mogterm-visual-bell');
+    this.container.addEventListener('animationend', () => {
+      this.container.classList.remove('mogterm-visual-bell');
+    }, { once: true });
   }
 
   _color256(n) {
