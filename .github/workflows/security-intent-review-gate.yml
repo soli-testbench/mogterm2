@@ -77,67 +77,45 @@ jobs:
         run: |
           set -euo pipefail
 
-          checkout_from_fork() {
-            local owner="$1" repo="$2" branch="$3"
-            local url="https://github.com/${owner}/${repo}.git"
-            echo "Review branch found in fork: ${owner}/${repo} (branch: ${branch})"
-            git remote add fork "$url" 2>/dev/null || true
-            git fetch --no-tags fork "refs/heads/${branch}"
-            git checkout -B "$branch" FETCH_HEAD
-            if [ "$branch" != "$REVIEW_BRANCH" ]; then
-              echo "Overriding REVIEW_BRANCH: ${REVIEW_BRANCH} -> ${branch}"
-              echo "REVIEW_BRANCH=${branch}" >> "$GITHUB_ENV"
-            fi
-          }
-
-          # Try 1: exact branch name in origin
-          if git fetch --no-tags origin "refs/heads/${REVIEW_BRANCH}" 2>/dev/null; then
-            echo "Review branch found in origin"
-            git checkout -B "$REVIEW_BRANCH" FETCH_HEAD
-            exit 0
-          fi
-
-          echo "Review branch not in origin, looking up PR to find fork..."
-
-          # Try 2: exact branch name match in open PRs
-          PR_JSON=$(gh pr list --repo "${{ github.repository }}" \
-            --state open \
-            --json headRefName,headRepositoryOwner,headRepository \
-            --jq "[.[] | select(.headRefName == \"${REVIEW_BRANCH}\")][0]")
-
-          if [ -n "$PR_JSON" ] && [ "$PR_JSON" != "null" ]; then
-            checkout_from_fork \
-              "$(echo "$PR_JSON" | jq -r '.headRepositoryOwner.login')" \
-              "$(echo "$PR_JSON" | jq -r '.headRepository.name')" \
-              "$REVIEW_BRANCH"
-            exit 0
-          fi
-
-          # Try 3: find PR whose branch contains the first 8 chars of the task ID
-          echo "Exact branch not found in PRs, searching by task ID prefix..."
           SHORT_ID="${TASK_ID:0:8}"
           PR_JSON=$(gh pr list --repo "${{ github.repository }}" \
             --state open \
             --json headRefName,headRepositoryOwner,headRepository \
             --jq "[.[] | select(.headRefName | contains(\"${SHORT_ID}\"))][0]")
 
-          if [ -n "$PR_JSON" ] && [ "$PR_JSON" != "null" ]; then
-            RESOLVED_BRANCH=$(echo "$PR_JSON" | jq -r '.headRefName')
-            checkout_from_fork \
-              "$(echo "$PR_JSON" | jq -r '.headRepositoryOwner.login')" \
-              "$(echo "$PR_JSON" | jq -r '.headRepository.name')" \
-              "$RESOLVED_BRANCH"
-            exit 0
+          if [ -z "$PR_JSON" ] || [ "$PR_JSON" = "null" ]; then
+            echo "::error::No open PR found for task ${TASK_ID} (searched branch containing ${SHORT_ID})"
+            exit 1
           fi
 
-          echo "::error::Branch '${REVIEW_BRANCH}' not found in repo or any open PR (also tried task ID prefix ${SHORT_ID})"
-          exit 1
+          BRANCH=$(echo "$PR_JSON" | jq -r '.headRefName')
+          FORK_OWNER=$(echo "$PR_JSON" | jq -r '.headRepositoryOwner.login')
+          FORK_REPO=$(echo "$PR_JSON" | jq -r '.headRepository.name')
+          FORK_URL="https://github.com/${FORK_OWNER}/${FORK_REPO}.git"
 
-      - name: Fetch base branch
+          echo "Found PR branch: ${BRANCH} in ${FORK_OWNER}/${FORK_REPO}"
+          git remote add fork "$FORK_URL" 2>/dev/null || true
+          git fetch --no-tags fork "refs/heads/${BRANCH}"
+          git checkout -B "$BRANCH" FETCH_HEAD
+
+          if [ "$BRANCH" != "$REVIEW_BRANCH" ]; then
+            echo "Overriding REVIEW_BRANCH: ${REVIEW_BRANCH} -> ${BRANCH}"
+            echo "REVIEW_BRANCH=${BRANCH}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Fetch base branch and check for conflicts
         shell: bash
         run: |
           set -euo pipefail
           git fetch --no-tags origin "refs/heads/${BASE_BRANCH}:refs/remotes/origin/${BASE_BRANCH}"
+
+          if ! git merge --no-commit --no-ff "origin/${BASE_BRANCH}" 2>/dev/null; then
+            git merge --abort 2>/dev/null || true
+            echo "::error::PR branch has merge conflicts with ${BASE_BRANCH}. Agent must rebase before review."
+            exit 1
+          fi
+          git merge --abort 2>/dev/null || true
+          echo "No conflicts with ${BASE_BRANCH}"
 
       - name: Resolve review range
         id: refs
