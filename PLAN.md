@@ -1,51 +1,42 @@
 # Plan: Add Dynamic Terminal Resize Support
 
-## Overview
+## Current State
 
-Add real-time resize detection and handling to the MogTerm terminal emulator. The `Terminal.resize(cols, rows)` method already exists and handles internal state updates. This feature adds the detection and notification layers in `renderer.js`.
+The renderer (`src/renderer.js`) already has the core resize infrastructure from commit `4859e31`:
+- `_measureCellSize()` — measures character cell dimensions from rendered font
+- `_setupResizeObserver()` — attaches ResizeObserver with debouncing (100ms)
+- `_handleResize()` — computes cols/rows, calls `terminal.resize()`, re-renders, fires `onResize` callback
+- `dispose()` — cleanup method for observer and timers
+- `onResize` callback property for PTY/backend notification
+
+## Remaining Work
+
+The **demo page** (`demo/index.html`) needs updates to exercise and demonstrate the resize feature:
+
+1. **CSS resize handle** — Add `resize: both; overflow: hidden;` and explicit dimensions to `#terminal-container` so users can drag to resize
+2. **Status indicator** — Add a visible element showing current `cols x rows` that updates in real time
+3. **Hook onResize** — Wire `renderer.onResize` to update the status display and simulate PTY notification
 
 ## Architecture
 
-All changes are contained in `src/renderer.js` (primary) and `demo/index.html` (demo integration). No new dependencies needed — `ResizeObserver` is a native browser API.
+- `src/renderer.js` — Complete, no changes needed
+- `src/terminal.js` — Has `resize(cols, rows)` method, no changes needed
+- `demo/index.html` — Needs CSS + JS updates for resize demo
 
-### Components
+## Key Decisions
 
-1. **Cell dimension measurement** — Create a hidden `<span>` with the terminal's font settings, measure a single character's bounding box to get `charWidth` and `charHeight`. Remeasure on font changes.
-
-2. **ResizeObserver** — Attach to `this.container` in the `Renderer` constructor. On resize, compute new `cols` and `rows` from `(containerWidth - padding) / charWidth` and `(containerHeight - padding) / charHeight`, floored.
-
-3. **Debounce** — Use a simple `setTimeout`/`clearTimeout` debounce (100ms) to avoid excessive recomputation during continuous dragging.
-
-4. **Terminal state update** — Call `this.terminal.resize(cols, rows)` with the new dimensions, then call `this.render()` to re-render.
-
-5. **PTY notification** — Emit a callback `this.onResize(cols, rows)` that consumers can hook into to notify backend/PTY. The demo page will log resize events to demonstrate the hook.
-
-### Key Decisions
-
-- **No new dependencies**: `ResizeObserver` has >96% browser support (caniuse.com). No polyfill needed.
-- **Measurement approach**: Use a hidden off-screen `<span>` with the same font/size to measure character cell dimensions. This is the standard approach used by xterm.js and other terminal emulators.
-- **Debounce value**: 100ms — standard value balancing responsiveness and performance.
-- **Callback pattern for PTY notification**: Rather than assuming a specific transport (WebSocket, HTTP, etc.), expose an `onResize(cols, rows)` callback on the Renderer. This matches the existing callback pattern used elsewhere in the codebase (e.g., `Parser.onPrint`, `Mogterm.onCommand`).
-
-### Files Changed
-
-| File | Change |
-|------|--------|
-| `src/renderer.js` | Add `_measureCellSize()`, `_setupResizeObserver()`, debounce logic, `onResize` callback |
-| `demo/index.html` | Make terminal container resizable, hook `onResize` to log/display resize events |
-| `test/terminal.test.js` | Add resize-related tests (terminal.resize already tested; add edge cases) |
-
-### Acceptance Criteria Mapping
-
-1. **ResizeObserver on container** → `_setupResizeObserver()` in Renderer constructor
-2. **Cell dimension measurement** → `_measureCellSize()` creates hidden span, measures charWidth/charHeight
-3. **Debounce** → `setTimeout`/`clearTimeout` at 100ms in observer callback
-4. **Call terminal.resize()** → Observer callback computes cols/rows, calls `this.terminal.resize()`
-5. **PTY notification** → `this.onResize?.(cols, rows)` callback after resize
-6. **Re-render after resize** → `this.render()` called after `terminal.resize()`
-7. **Existing functionality preserved** → All existing tests continue to pass
+- **No new dependencies**: `ResizeObserver` has >96% browser support. No polyfill needed.
+- **Callback pattern for PTY notification**: `onResize(cols, rows)` callback on Renderer matches existing callback patterns in the codebase.
+- **Debounce**: 100ms via setTimeout/clearTimeout — standard value balancing responsiveness and performance.
 
 ## Sources
 
-- ResizeObserver API: MDN Web Docs (native browser API, no polyfill needed)
-- Cell measurement technique: standard approach used by xterm.js, measuring a monospace character in a hidden element
+- ResizeObserver API: MDN Web Docs (native browser API)
+- Cell measurement technique: standard approach used by xterm.js
+
+## Verification
+
+- All 119 existing tests pass (`node test/terminal.test.js`)
+- Demo page shows draggable resize handle on terminal container corner
+- Status indicator shows live cols x rows during resize
+- All existing demo buttons continue to work after resize
