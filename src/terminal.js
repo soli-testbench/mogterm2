@@ -32,10 +32,16 @@ export class Terminal {
   /**
    * @param {number} cols — number of columns (default 80)
    * @param {number} rows — number of rows (default 24)
+   * @param {object} [options] — optional configuration
+   * @param {number} [options.scrollbackLines=1000] — max scrollback buffer lines
    */
-  constructor(cols = 80, rows = 24) {
+  constructor(cols = 80, rows = 24, options = {}) {
     this.cols = cols;
     this.rows = rows;
+
+    // Scrollback buffer
+    this.scrollbackLines = options.scrollbackLines ?? 1000;
+    this.scrollback = [];
 
     // Screen buffer: array of rows, each row is array of cells
     this.cells = [];
@@ -58,6 +64,9 @@ export class Terminal {
       originMode: false,
       applicationCursor: false,
     };
+
+    // Alternate screen buffer tracking
+    this._altScreenActive = false;
 
     // Scroll region (1-indexed internally stored as 0-indexed)
     this.scrollTop = 0;
@@ -175,7 +184,14 @@ export class Terminal {
 
   _scrollUp(n) {
     for (let i = 0; i < n; i++) {
-      this.cells.splice(this.scrollTop, 1);
+      const evicted = this.cells.splice(this.scrollTop, 1)[0];
+      // Capture evicted row into scrollback (primary buffer only, full scroll region only)
+      if (!this._altScreenActive && this.scrollTop === 0 && this.scrollBottom === this.rows - 1) {
+        this.scrollback.push(evicted.map(c => ({ char: c.char, attr: { ...c.attr } })));
+        if (this.scrollback.length > this.scrollbackLines) {
+          this.scrollback.shift();
+        }
+      }
       this.cells.splice(this.scrollBottom, 0, this._emptyRow());
     }
   }
@@ -310,12 +326,14 @@ export class Terminal {
           break;
         case 1049: // Alternate screen buffer (simplified)
           if (enabled) {
+            this._altScreenActive = true;
             this._savedBuffer = this.cells.map(row => row.map(c => ({ ...c, attr: { ...c.attr } })));
             this._savedCursorAlt = { row: this.cursorRow, col: this.cursorCol };
             this._initBuffer();
             this.cursorRow = 0;
             this.cursorCol = 0;
           } else if (this._savedBuffer) {
+            this._altScreenActive = false;
             this.cells = this._savedBuffer;
             this._savedBuffer = null;
             if (this._savedCursorAlt) {
@@ -469,10 +487,15 @@ export class Terminal {
         }
         break;
       case 2: // Erase entire display
-      case 3: // Erase display + scrollback (treat same as 2 for now)
         for (let r = 0; r < this.rows; r++) {
           this.cells[r] = this._emptyRow();
         }
+        break;
+      case 3: // Erase display + scrollback
+        for (let r = 0; r < this.rows; r++) {
+          this.cells[r] = this._emptyRow();
+        }
+        this.clearScrollback();
         break;
     }
   }
@@ -595,7 +618,13 @@ export class Terminal {
       cursorCol: this.cursorCol,
       cursorVisible: this.cursorVisible,
       title: this.title,
+      scrollback: this.scrollback,
+      scrollbackLength: this.scrollback.length,
     };
+  }
+
+  clearScrollback() {
+    this.scrollback = [];
   }
 
   /**
@@ -612,6 +641,7 @@ export class Terminal {
    */
   reset() {
     this._initBuffer();
+    this.scrollback = [];
     this.cursorRow = 0;
     this.cursorCol = 0;
     this.cursorVisible = true;
@@ -624,6 +654,7 @@ export class Terminal {
       originMode: false,
       applicationCursor: false,
     };
+    this._altScreenActive = false;
     this._savedCursor = null;
     this._savedBuffer = null;
     this._savedCursorAlt = null;

@@ -1,132 +1,55 @@
-# Cursor Blink Animation — Implementation Plan
+# Plan: Add Terminal Scrollback Buffer
 
-## Summary
+## Overview
 
-Add a standards-compliant blinking cursor animation across both rendering paths in MogTerm: the interactive `Mogterm` component (`mogterm.js` + `mogterm.css`) and the VT100 demo renderer (`renderer.js` + `demo/index.html`). The implementation uses pure CSS animations with minimal JS for the "stop while typing" behavior.
+Add a scrollback buffer to the VT100 terminal engine (`terminal.js`) that captures rows evicted by `_scrollUp`, and update the DOM renderer (`renderer.js`) to support viewport scrolling through the buffer via mouse wheel and keyboard shortcuts.
 
-## Codebase Analysis
+## Architecture
 
-The project has **two independent cursor rendering systems**:
+### 1. Scrollback Buffer in `terminal.js`
 
-| System | Files | Current Cursor Behavior |
-|--------|-------|------------------------|
-| Interactive terminal | `src/mogterm.js`, `src/mogterm.css`, `index.html` | Block cursor with `step-end` blink via CSS `@keyframes mogterm-blink`. Hides cursor when unfocused. No typing-pause, no reduce-motion, hard step-end (not smooth). |
-| VT100 demo renderer | `src/renderer.js`, `demo/index.html` | Solid block cursor via inline `backgroundColor` on the cursor cell. No blink at all. |
+**Ring buffer implementation**: Use a plain array with a configurable max size (`scrollbackLines`, default 1000). When `_scrollUp` evicts a row from the visible grid and we are on the **primary screen buffer** (not alternate screen), push a deep copy of the evicted row onto the scrollback array. When the array exceeds the limit, shift the oldest entry off.
 
-## Changes Required
+Key design decisions:
+- **Deep copy on capture**: Rows are arrays of cell objects with `attr` sub-objects. We must clone them when capturing to avoid mutation.
+- **Primary buffer only**: When mode 1049 (alternate screen) is active, `_scrollUp` must NOT capture rows. Track this with a boolean `_altScreenActive` flag set in `_setPrivateMode`.
+- **Exposed via constructor option**: `new Terminal(cols, rows, { scrollbackLines: 1000 })`. The third parameter is an options object.
+- **Exposed via `getState()`**: Add `scrollback` array and `scrollbackLength` to the state object so the renderer can access it.
+- **`clearScrollback()`** method for ED mode 3 (erase display + scrollback).
 
-### 1. `src/mogterm.css` — Update cursor animation (CSS only)
+### 2. Viewport Scrolling in `renderer.js`
 
-**Current state:** Has `@keyframes mogterm-blink` with `step-end` (hard on/off) at 1s cycle. Missing `prefers-reduced-motion` support.
+The renderer currently renders exactly `state.rows` rows from `state.cells`. With scrollback, the "virtual" content is `scrollback.concat(cells)` — the scrollback rows above, the live grid below.
 
-**Changes:**
-- Change `@keyframes mogterm-blink` from `step-end` to a smooth `ease-in-out` opacity fade for a polished look, keeping the 1s period (500ms on, 500ms off ≈ 1 Hz, well under the WCAG 3 Hz threshold).
-- Add a `.mogterm-cursor--typing` modifier class that sets `animation: none; opacity: 1;` to keep the cursor solid while the user types.
-- Add `@media (prefers-reduced-motion: reduce)` rule that disables the blink animation entirely, showing a solid cursor.
-- Ensure cursor color uses the existing `#d4d4d4` (matches the design system text color, visible on both the dark `#1e1e1e` background and inverted contexts).
+**Scroll offset model**: `_scrollOffset` is the number of rows the viewport is scrolled UP from the bottom (live position). `0` = live mode (pinned to bottom). Max = `scrollback.length`.
 
-**Resulting CSS structure:**
-```css
-.mogterm-cursor {
-  /* existing block cursor styles */
-  animation: mogterm-blink 1s ease-in-out infinite;
-}
+**Rendering with offset**:
+- Total virtual rows = `scrollback.length + state.rows`
+- Viewport shows rows `[totalRows - state.rows - _scrollOffset, totalRows - _scrollOffset)`
+- When `_scrollOffset === 0`, this is exactly the live `state.cells` — no change from current behavior
+- When scrolled up, we slice from the combined virtual buffer
 
-.mogterm-cursor--typing {
-  animation: none;
-  opacity: 1;
-}
+**Event handling**:
+- `wheel` event on container: deltaY > 0 scrolls down (decrease offset), deltaY < 0 scrolls up (increase offset). Clamp to [0, scrollback.length].
+- `keydown` on container (requires `tabindex`): PageUp/PageDown scroll by `state.rows` lines. End key snaps to live (offset = 0).
+- Container needs `tabindex="0"` and `outline: none` for keyboard focus.
 
-.mogterm:not(:focus) .mogterm-cursor {
-  animation: none;
-  background: transparent;
-}
+**New content indicator**: When `_scrollOffset > 0` and new content arrives (detected on `render()` when scrollback length increases or live grid changes), show a small "New output below" bar at the bottom of the container. Clicking it snaps to live.
 
-@keyframes mogterm-blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
-}
+**Auto-scroll behavior**: When `_scrollOffset === 0` (live mode), new output auto-scrolls as before. When scrolled up, `_scrollOffset` stays fixed — new content pushes into scrollback, increasing the total buffer, but the viewport doesn't move.
 
-@media (prefers-reduced-motion: reduce) {
-  .mogterm-cursor {
-    animation: none;
-    opacity: 1;
-  }
-}
-```
+### 3. Files Changed
 
-### 2. `src/mogterm.js` — Add typing-pause logic (JS)
+| File | Changes |
+|------|---------|
+| `src/terminal.js` | Add scrollback buffer array, capture in `_scrollUp`, options constructor param, alt-screen guard, expose in `getState()`, `clearScrollback()`, reset scrollback in `reset()` |
+| `src/renderer.js` | Add `_scrollOffset` state, wheel/keyboard handlers, viewport rendering from scrollback+cells, "new output" indicator, CSS for indicator |
 
-**Changes:**
-- In `_onKeyDown()`, after any printable/navigation key event, add the `mogterm-cursor--typing` class to the cursor element and set/reset a debounce timer.
-- After ~1 second of inactivity, remove the `mogterm-cursor--typing` class so the blink animation resumes.
-- Store the timer ID and cursor element reference on the instance.
-- Since `_render()` rebuilds the DOM each time, the typing class must be re-applied during render if the typing timer is still active. Track a `this._isTyping` boolean flag that `_render()` checks when creating the cursor element.
+### 4. Testing Strategy
 
-**Implementation approach:**
-```js
-// In _onKeyDown, after any handled key:
-this._isTyping = true;
-clearTimeout(this._typingTimer);
-this._typingTimer = setTimeout(() => {
-  this._isTyping = false;
-  this._render(); // re-render to remove typing class
-}, 1000);
+- Existing tests must continue to pass (scrollback changes are additive and don't alter the visible grid behavior).
+- Manual verification via `demo/index.html` — run demos that produce lots of output, scroll up/down with wheel and keys.
 
-// In _render, when creating cursor span:
-if (this._isTyping) {
-  cursor.classList.add('mogterm-cursor--typing');
-}
-```
+## Scope Assessment
 
-### 3. `src/renderer.js` — Add cursor blink to VT100 renderer
-
-**Current state:** Cursor is rendered as a `<span>` with inline `backgroundColor`/`color` styles. No CSS class, no animation.
-
-**Changes:**
-- Add a CSS class `mogterm-vt-cursor` to the cursor span instead of (or in addition to) inline styles.
-- Add a `<style>` element injected into the container (or rely on `mogterm.css` being loaded) with the blink keyframes.
-- Simpler approach: add a `mogterm-vt-cursor` class and corresponding `@keyframes` in `mogterm.css`. The renderer already sets `backgroundColor` inline which will override a CSS class background, so use the class to apply only the animation.
-- The cleanest approach: add the CSS class to the cursor span for the animation, keep inline styles for color. The animation targets `opacity` which doesn't conflict with inline color styles.
-- Add `prefers-reduced-motion` handling in the same CSS.
-- Since the VT100 renderer doesn't have keyboard input (it's output-only), the "stop while typing" criterion doesn't apply here.
-
-**Specific changes to `renderer.js`:**
-- In the `render()` method, add `span.classList.add('mogterm-vt-cursor')` to the cursor cell's span.
-- In `_setup()`, inject a minimal `<style>` block with the animation keyframes and reduce-motion query (to avoid requiring `mogterm.css` to be loaded in the demo page).
-
-### 4. `demo/index.html` — No changes needed
-
-The demo uses `renderer.js` which will get the blink animation through the injected styles. The raw input field (`#raw-input`) is a native `<input>` element whose caret is controlled by the browser natively — no custom cursor needed there.
-
-### 5. `index.html` — No changes needed
-
-Already loads `mogterm.css` and uses the `Mogterm` class.
-
-## Acceptance Criteria Mapping
-
-| Criterion | How Addressed |
-|-----------|--------------|
-| Cursor blinks with smooth on/off or fade animation | `ease-in-out` opacity animation on `mogterm-cursor` and `mogterm-vt-cursor` |
-| Blink rate ~1–1.2 Hz (500ms on/off) | `animation: mogterm-blink 1s ease-in-out infinite` (1 Hz = well under 3 Hz WCAG limit) |
-| Cursor stops blinking while typing, resumes after ~1s | JS debounce timer adds/removes `mogterm-cursor--typing` class |
-| Respects `prefers-reduced-motion` | `@media (prefers-reduced-motion: reduce)` disables animation |
-| Consistent across all text inputs/editors | Both `mogterm.js` and `renderer.js` cursor paths covered |
-| Cursor color matches design system | Uses existing `#d4d4d4` / `#ffffff` cursor colors from current code |
-
-## Testing
-
-- Existing tests (`test/mogterm.test.js`, `test/terminal.test.ts`) focus on terminal logic, not DOM rendering. They should pass without modification.
-- Manual testing: open `index.html` and `demo/index.html`, verify cursor blinks, stops on typing, resumes after pause.
-- Verify `prefers-reduced-motion` by toggling OS setting or using Chrome DevTools rendering panel.
-
-## Research Sources
-
-- [WCAG 2.3.1: Three Flashes or Below Threshold](https://www.w3.org/WAI/WCAG21/Understanding/three-flashes-or-below-threshold.html) — 3 Hz flash threshold
-- [WCAG 2.3.2: Three Flashes](https://www.w3.org/WAI/WCAG21/Understanding/three-flashes.html) — Level AAA no-flash requirement
-- [MDN: prefers-reduced-motion](https://developer.mozilla.org/en-US/docs/Web/CSS/@media/prefers-reduced-motion) — CSS media query for reduced motion
-- [IBM Accessibility: Blinking elements](https://www.ibm.com/able/guidelines/software/swblinking.html) — Recommends <2 Hz or >55 Hz blink rate
-
-## Mode
-
-**Single agent** — all changes are in 3 tightly-coupled files (`mogterm.css`, `mogterm.js`, `renderer.js`) with shared CSS patterns. No benefit from parallelism.
+**Single agent** — all changes are tightly coupled: the buffer in terminal.js feeds the viewport logic in renderer.js. No meaningful parallelism.
