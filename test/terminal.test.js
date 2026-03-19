@@ -381,6 +381,61 @@ test('Terminal: erase in display mode 1 (above)', () => {
   assertEqual(t.cells[2][0].char, 'C', 'row 2 preserved');
 });
 
+test('Terminal: resize grow preserves content', () => {
+  const t = new Terminal(10, 5);
+  t.write('ABCDE');
+  t.resize(20, 10);
+  assertEqual(t.cols, 20, 'cols grew to 20');
+  assertEqual(t.rows, 10, 'rows grew to 10');
+  assertEqual(t.cells.length, 10, '10 rows in buffer');
+  assertEqual(t.cells[0].length, 20, '20 cols per row');
+  assertEqual(t.cells[0][0].char, 'A', 'content preserved after grow');
+  assertEqual(t.cells[0][4].char, 'E', 'content preserved after grow');
+  assertEqual(t.cells[0][5].char, ' ', 'new cols are blank');
+});
+
+test('Terminal: resize shrink clamps cursor', () => {
+  const t = new Terminal(80, 24);
+  t.write('\x1b[24;80H');  // move cursor to last row, last col
+  assertEqual(t.cursorRow, 23, 'cursor at row 23');
+  assertEqual(t.cursorCol, 79, 'cursor at col 79');
+  t.resize(40, 12);
+  assertEqual(t.cursorRow, 11, 'cursor row clamped to 11');
+  assertEqual(t.cursorCol, 39, 'cursor col clamped to 39');
+});
+
+test('Terminal: resize to 1x1', () => {
+  const t = new Terminal(80, 24);
+  t.write('Hello');
+  t.resize(1, 1);
+  assertEqual(t.cols, 1, 'cols = 1');
+  assertEqual(t.rows, 1, 'rows = 1');
+  assertEqual(t.cells.length, 1, '1 row');
+  assertEqual(t.cells[0].length, 1, '1 col');
+  assertEqual(t.cursorRow, 0, 'cursor row clamped');
+  assertEqual(t.cursorCol, 0, 'cursor col clamped');
+});
+
+test('Terminal: resize updates scroll region', () => {
+  const t = new Terminal(80, 24);
+  t.write('\x1b[5;20r');  // set scroll region rows 5-20
+  assertEqual(t.scrollBottom, 19, 'scrollBottom = 19');
+  t.resize(80, 10);
+  assertEqual(t.scrollBottom, 9, 'scrollBottom reset to rows-1 after resize');
+});
+
+test('Terminal: functionality after resize', () => {
+  const t = new Terminal(80, 24);
+  t.resize(40, 12);
+  t.write('\x1b[2J\x1b[H');  // clear and home
+  t.write('After resize');
+  assertEqual(t.cells[0][0].char, 'A', 'can write after resize');
+  assertEqual(t.cells[0][5].char, ' ', 'space at correct position');
+  t.write('\x1b[2;1H');  // move to row 2
+  t.write('Second line');
+  assertEqual(t.cells[1][0].char, 'S', 'cursor movement works after resize');
+});
+
 // ─── Summary ─────────────────────────────────────────────────
 
 console.log(`\n${passed} passed, ${failed} failed`);
