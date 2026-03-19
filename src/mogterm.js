@@ -11,12 +11,19 @@ class Mogterm {
     this.prompt = options.prompt || '$ ';
     this.onCommand = options.onCommand || null;
 
+    // Scrollback configuration
+    this.scrollbackLines = options.scrollbackLines ?? 1000;
+
     this.history = []; // completed output lines
     this.inputBuffer = '';
     this.cursorPos = 0;
     this.focused = false;
     this._isTyping = false;
     this._typingTimer = null;
+
+    // Scrollback state
+    this._scrollOffset = 0; // 0 = live (bottom), >0 = scrolled up by N lines
+    this._hasNewContent = false;
 
     this._init();
   }
@@ -29,6 +36,7 @@ class Mogterm {
     this.container.addEventListener('focus', () => this._onFocus());
     this.container.addEventListener('blur', () => this._onBlur());
     this.container.addEventListener('click', () => this.container.focus());
+    this.container.addEventListener('wheel', (e) => this._onWheel(e), { passive: false });
 
     this._render();
   }
@@ -43,8 +51,48 @@ class Mogterm {
     this._render();
   }
 
+  _onWheel(e) {
+    const maxOffset = this._maxScrollOffset();
+    if (maxOffset === 0) return;
+
+    e.preventDefault();
+    const linesDelta = e.deltaY > 0 ? -3 : 3; // scroll down = towards bottom, scroll up = towards top
+    this._scrollOffset = Math.max(0, Math.min(maxOffset, this._scrollOffset + linesDelta));
+    if (this._scrollOffset === 0) this._hasNewContent = false;
+    this._render();
+  }
+
+  _maxScrollOffset() {
+    // Total lines = history + 1 (prompt line). Visible = container fits.
+    // For simplicity, max offset = max(0, history.length - visibleLines + 1)
+    // Since we don't know container height in Node, use history length as max.
+    return Math.max(0, this.history.length);
+  }
+
   _onKeyDown(e) {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+    // Scrollback navigation keys
+    if (e.key === 'PageUp') {
+      e.preventDefault();
+      const pageSize = 10;
+      this._scrollOffset = Math.min(this._maxScrollOffset(), this._scrollOffset + pageSize);
+      this._render();
+      return;
+    } else if (e.key === 'PageDown') {
+      e.preventDefault();
+      const pageSize = 10;
+      this._scrollOffset = Math.max(0, this._scrollOffset - pageSize);
+      if (this._scrollOffset === 0) this._hasNewContent = false;
+      this._render();
+      return;
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      this._scrollOffset = 0;
+      this._hasNewContent = false;
+      this._render();
+      return;
+    }
 
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -93,6 +141,14 @@ class Mogterm {
   _submit() {
     const cmd = this.inputBuffer;
     this.history.push(this.prompt + cmd);
+
+    // Trim scrollback buffer to configured limit
+    while (this.history.length > this.scrollbackLines) {
+      this.history.shift();
+      // Adjust scroll offset since we removed from the top
+      if (this._scrollOffset > 0) this._scrollOffset--;
+    }
+
     this.inputBuffer = '';
     this.cursorPos = 0;
 
@@ -100,8 +156,14 @@ class Mogterm {
       this.onCommand(cmd);
     }
 
-    this._render();
-    this._scrollToBottom();
+    // If user is scrolled up, mark new content available; don't snap to bottom
+    if (this._scrollOffset > 0) {
+      this._hasNewContent = true;
+      this._render();
+    } else {
+      this._render();
+      this._scrollToBottom();
+    }
   }
 
   /**
@@ -109,8 +171,21 @@ class Mogterm {
    */
   writeLine(text) {
     this.history.push(text);
-    this._render();
-    this._scrollToBottom();
+
+    // Trim scrollback buffer to configured limit
+    while (this.history.length > this.scrollbackLines) {
+      this.history.shift();
+      if (this._scrollOffset > 0) this._scrollOffset--;
+    }
+
+    // If scrolled up, don't snap to bottom; show indicator
+    if (this._scrollOffset > 0) {
+      this._hasNewContent = true;
+      this._render();
+    } else {
+      this._render();
+      this._scrollToBottom();
+    }
   }
 
   _render() {
@@ -157,6 +232,14 @@ class Mogterm {
     }
 
     frag.appendChild(promptLine);
+
+    // New content indicator when scrolled up
+    if (this._scrollOffset > 0 && this._hasNewContent) {
+      const indicator = document.createElement('div');
+      indicator.className = 'mogterm-new-content';
+      indicator.textContent = '\u2193 New output below';
+      frag.appendChild(indicator);
+    }
 
     this.container.innerHTML = '';
     this.container.appendChild(frag);
