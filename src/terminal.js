@@ -23,10 +23,23 @@ function defaultAttr() {
   };
 }
 
+/** Deep-copy a color value (may be null, number, or {type, ...} object) */
+function copyColor(c) {
+  return c !== null && typeof c === 'object' ? { ...c } : c;
+}
+
+/** Deep-copy a cell's attr, including nested fg/bg color objects */
+function deepCopyAttr(attr) {
+  return { ...attr, fg: copyColor(attr.fg), bg: copyColor(attr.bg) };
+}
+
 /** Create an empty cell */
 function emptyCell() {
   return { char: ' ', attr: defaultAttr() };
 }
+
+/** Hard upper bound for scrollback buffer lines */
+const MAX_SCROLLBACK = 10000;
 
 export class Terminal {
   /**
@@ -40,8 +53,7 @@ export class Terminal {
     this.rows = rows;
 
     // Scrollback buffer (bounded to prevent unbounded memory growth)
-    const MAX_SCROLLBACK = 10000;
-    this.scrollbackLines = Math.min(Math.max(0, options.scrollbackLines ?? 1000), MAX_SCROLLBACK);
+    this._scrollbackLines = Math.min(Math.max(0, options.scrollbackLines ?? 1000), MAX_SCROLLBACK);
     this.scrollback = [];
 
     // Screen buffer: array of rows, each row is array of cells
@@ -82,6 +94,14 @@ export class Terminal {
     // Parser
     this.parser = new Parser();
     this._bindParser();
+  }
+
+  get scrollbackLines() {
+    return this._scrollbackLines;
+  }
+
+  set scrollbackLines(value) {
+    this._scrollbackLines = Math.min(Math.max(0, value), MAX_SCROLLBACK);
   }
 
   _initBuffer() {
@@ -137,7 +157,7 @@ export class Terminal {
     }
     this.cells[this.cursorRow][this.cursorCol] = {
       char: ch,
-      attr: { ...this.attr },
+      attr: deepCopyAttr(this.attr),
     };
     this.cursorCol++;
   }
@@ -188,7 +208,7 @@ export class Terminal {
       const evicted = this.cells.splice(this.scrollTop, 1)[0];
       // Capture evicted row into scrollback (primary buffer only, full scroll region only)
       if (!this._altScreenActive && this.scrollTop === 0 && this.scrollBottom === this.rows - 1) {
-        this.scrollback.push(evicted.map(c => ({ char: c.char, attr: { ...c.attr } })));
+        this.scrollback.push(evicted.map(c => ({ char: c.char, attr: deepCopyAttr(c.attr) })));
         if (this.scrollback.length > this.scrollbackLines) {
           this.scrollback.shift();
         }
@@ -328,7 +348,7 @@ export class Terminal {
         case 1049: // Alternate screen buffer (simplified)
           if (enabled) {
             this._altScreenActive = true;
-            this._savedBuffer = this.cells.map(row => row.map(c => ({ ...c, attr: { ...c.attr } })));
+            this._savedBuffer = this.cells.map(row => row.map(c => ({ char: c.char, attr: deepCopyAttr(c.attr) })));
             this._savedCursorAlt = { row: this.cursorRow, col: this.cursorCol };
             this._initBuffer();
             this.cursorRow = 0;
@@ -568,14 +588,14 @@ export class Terminal {
         this._savedCursor = {
           row: this.cursorRow,
           col: this.cursorCol,
-          attr: { ...this.attr },
+          attr: deepCopyAttr(this.attr),
         };
         break;
       case '8': // DECRC — restore cursor
         if (this._savedCursor) {
           this.cursorRow = this._savedCursor.row;
           this.cursorCol = this._savedCursor.col;
-          this.attr = { ...this._savedCursor.attr };
+          this.attr = deepCopyAttr(this._savedCursor.attr);
         }
         break;
       case 'D': // IND — index (move down / scroll)
@@ -612,7 +632,7 @@ export class Terminal {
    */
   getState() {
     // Deep-copy cells to prevent external mutation of internal state
-    const deepCopyRow = row => row.map(c => ({ char: c.char, attr: { ...c.attr } }));
+    const deepCopyRow = row => row.map(c => ({ char: c.char, attr: deepCopyAttr(c.attr) }));
     const cellsCopy = this.cells.map(deepCopyRow);
     const scrollbackCopy = this.scrollback.map(deepCopyRow);
     return {
