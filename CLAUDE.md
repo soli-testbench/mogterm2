@@ -2,29 +2,36 @@
 
 ## Plan Branch
 agent/73047d31-b9aa-4262-9d19-24eac57184c8
+## Upstream Repository
+soli-testbench/mogterm2
 
 ## Suggested PR Title
-feat(renderer): add dynamic terminal resize support
+feat(terminal): add dynamic terminal resize support
 
 ## Suggested PR Description
 ## Summary
 
 - Added `ResizeObserver` in `renderer.js` to detect container size changes and trigger terminal dimension recalculation
-- Implemented character cell measurement (`_measureCellSize`) using a hidden DOM probe element to accurately compute cols/rows from pixel dimensions
-- Resize events are debounced at 100ms via `setTimeout`/`clearTimeout` to prevent excessive recomputation
-- `terminal.resize(cols, rows)` is called with newly computed dimensions, properly adjusting the cell buffer, cursor position, and scroll region
-- An `onResize(cols, rows)` callback notifies the backend/PTY layer of new dimensions (SIGWINCH equivalent)
-- Terminal content is re-rendered after resize via `this.render()`
+- Implemented font-based character cell measurement (`_measureCellSize`) to accurately compute columns/rows from pixel dimensions
+- Debounced resize events at 100ms to prevent excessive recomputation during continuous resizing
+- Calls existing `terminal.resize(cols, rows)` with computed dimensions and re-renders content
+- Exposes `onResize(cols, rows)` callback for backend/PTY notification (SIGWINCH equivalent)
 - Added `dispose()` method for cleanup of observer and timers
-- All 34 existing tests pass — no regressions
+
+## Acceptance Criteria
+
+- [x] ResizeObserver detects container size changes
+- [x] Character cell dimensions measured from rendered font
+- [x] Resize events debounced (100ms)
+- [x] `terminal.resize(cols, rows)` called with new dimensions
+- [x] Backend/PTY notified via `onResize` callback
+- [x] Terminal content re-rendered correctly after resize
+- [x] Existing functionality preserved (all 34 tests passing)
 
 ## Test plan
-- [x] All 34 existing terminal tests pass
-- [x] Verified ResizeObserver setup and debounce logic in renderer.js
-- [x] Verified terminal.resize() correctly adjusts buffer dimensions
-- [x] Verified onResize callback mechanism for PTY notification
 
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
+- All 34 existing terminal tests pass with no regressions
+- ResizeObserver integration, debouncing, and callback notification verified via code review
 ## Merged Sub-Branches
 agent-task-73047d31-sub-0
 
