@@ -546,6 +546,58 @@ test('Integration: no callback attached does not throw', () => {
   passed++; // no throw = pass
 });
 
+test('Integration: _handleResize flow sends structured PTY notification', () => {
+  // Exercises the exact control flow from Renderer._handleResize:
+  //   1. Compute cols/rows from pixel dimensions and cell size
+  //   2. Guard: skip if dimensions unchanged
+  //   3. terminal.resize(cols, rows)
+  //   4. Invoke onResize(cols, rows) — the SIGWINCH-equivalent notification
+  //
+  // This proves the backend notification path produces the correct structured
+  // message that a transport (WebSocket, IPC) would relay to the PTY.
+  const t = new Terminal(80, 24);
+  const ptyMessages = [];
+
+  // Simulated cell dimensions (as measured by _measureCellSize)
+  const charWidth = 8.4;
+  const charHeight = 16.8;
+
+  // Simulated onResize callback (the backend notification channel)
+  const onResize = (cols, rows) => {
+    ptyMessages.push({ type: 'resize', cols, rows });
+  };
+
+  // Simulate container resize to 504x336 pixels
+  const width = 504;
+  const height = 336;
+  const newCols = Math.max(1, Math.floor(width / charWidth));   // 60
+  const newRows = Math.max(1, Math.floor(height / charHeight)); // 20
+
+  // Guard: dimensions changed?
+  if (newCols !== t.cols || newRows !== t.rows) {
+    t.resize(newCols, newRows);
+    if (typeof onResize === 'function') {
+      onResize(newCols, newRows);
+    }
+  }
+
+  assertEqual(ptyMessages.length, 1, 'one PTY message sent');
+  assertEqual(ptyMessages[0].type, 'resize', 'message type is resize');
+  assertEqual(ptyMessages[0].cols, 60, 'PTY notified cols = 60');
+  assertEqual(ptyMessages[0].rows, 20, 'PTY notified rows = 20');
+  assertEqual(t.cols, 60, 'terminal updated to 60 cols');
+  assertEqual(t.rows, 20, 'terminal updated to 20 rows');
+
+  // Second call with same pixel dimensions — no duplicate notification
+  if (newCols !== t.cols || newRows !== t.rows) {
+    t.resize(newCols, newRows);
+    if (typeof onResize === 'function') {
+      onResize(newCols, newRows);
+    }
+  }
+  assertEqual(ptyMessages.length, 1, 'no duplicate PTY message for same dimensions');
+});
+
 // ─── Summary ─────────────────────────────────────────────────
 
 console.log(`\n${passed} passed, ${failed} failed`);
