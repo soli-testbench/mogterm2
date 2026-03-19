@@ -102,6 +102,19 @@ export class Terminal {
 
   set scrollbackLines(value) {
     this._scrollbackLines = Math.min(Math.max(0, value), MAX_SCROLLBACK);
+    // Trim scrollback if new cap is smaller
+    while (this.scrollback.length > this._scrollbackLines) {
+      this.scrollback.shift();
+    }
+  }
+
+  /**
+   * Returns a copy of the scrollback buffer lines.
+   * @returns {Array} deep-copied scrollback rows
+   */
+  getScrollbackLines() {
+    const deepCopyRow = row => row.map(c => ({ char: c.char, attr: deepCopyAttr(c.attr) }));
+    return this.scrollback.map(deepCopyRow);
   }
 
   _initBuffer() {
@@ -717,6 +730,12 @@ export class Terminal {
 
     this.cursorRow = Math.min(this.cursorRow, rows - 1);
     this.cursorCol = Math.min(this.cursorCol, cols - 1);
+
+    // Enforce scrollback cap after resize
+    while (this.scrollback.length > this._scrollbackLines) {
+      this.scrollback.shift();
+    }
+
     this._dirty = true;
   }
 }
