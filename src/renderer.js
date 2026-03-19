@@ -35,10 +35,17 @@ export class Renderer {
     this.charWidth = 0;
     this.charHeight = 0;
 
-    // Resize callback — consumers set this to be notified of dimension changes.
-    // Design: the renderer owns pixel→cell translation; the consumer (e.g. a PTY
-    // host) wires this callback to propagate SIGWINCH / pty.resize(cols, rows).
-    // This decouples the renderer from any specific backend transport.
+    // Resize callback — consumers MUST set this to propagate dimension changes
+    // to the backend (e.g. PTY SIGWINCH).
+    //
+    // Contract:
+    //   onResize: (cols: number, rows: number) => void
+    //
+    // Called after terminal.resize() succeeds, only when dimensions actually
+    // change. If no callback is attached, resize is silently local-only —
+    // the terminal still updates but the backend is NOT notified, which will
+    // cause a desync. Consumers are responsible for wiring this to their
+    // transport (WebSocket, IPC, etc.).
     this.onResize = null;
 
     // Debounce state

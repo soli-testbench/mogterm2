@@ -107,6 +107,15 @@
     const container = document.getElementById('terminal-container');
     const renderer = new Renderer(container, term);
 
+    // Wire onResize to notify backend/PTY of dimension changes.
+    // In a full integration this would send a resize message over
+    // WebSocket or similar transport (equivalent to SIGWINCH).
+    renderer.onResize = (cols, rows) => {
+      console.log(`[resize] cols=${cols} rows=${rows}`);
+      // If a WebSocket connection to a PTY backend exists, send:
+      //   ws.send(JSON.stringify({ type: 'resize', cols, rows }));
+    };
+
     // Initial render
     renderer.render();
 

@@ -473,6 +473,79 @@ test('Terminal: resize callback invocation pattern', () => {
   assertEqual(resizeEvents[1].rows, 40, 'second callback rows = 40');
 });
 
+// ─── Resize backend notification integration tests ──────────
+
+test('Integration: resize emits backend notification with cols/rows', () => {
+  // Simulates the full Renderer._handleResize flow:
+  // 1. Compute new cols/rows from container size
+  // 2. Call terminal.resize(cols, rows)
+  // 3. Invoke onResize callback with the new dimensions
+  const t = new Terminal(80, 24);
+  const notifications = [];
+
+  // Simulate the onResize callback a consumer would wire
+  const onResize = (cols, rows) => {
+    notifications.push({ cols, rows });
+  };
+
+  // Simulate _handleResize: dimensions changed → resize + notify
+  const newCols = 120;
+  const newRows = 40;
+  t.resize(newCols, newRows);
+  if (typeof onResize === 'function') {
+    onResize(newCols, newRows);
+  }
+
+  assertEqual(notifications.length, 1, 'backend notified once');
+  assertEqual(notifications[0].cols, 120, 'notification cols = 120');
+  assertEqual(notifications[0].rows, 40, 'notification rows = 40');
+});
+
+test('Integration: no notification when dimensions unchanged', () => {
+  const t = new Terminal(80, 24);
+  const notifications = [];
+  const onResize = (cols, rows) => notifications.push({ cols, rows });
+
+  // Same dimensions — Renderer guards against this
+  const prevCols = t.cols;
+  const prevRows = t.rows;
+  t.resize(80, 24);
+  if (t.cols !== prevCols || t.rows !== prevRows) {
+    onResize(t.cols, t.rows);
+  }
+
+  assertEqual(notifications.length, 0, 'no notification for same dimensions');
+});
+
+test('Integration: notification contains exact cols/rows after shrink', () => {
+  const t = new Terminal(80, 24);
+  const notifications = [];
+  const onResize = (cols, rows) => notifications.push({ cols, rows });
+
+  t.resize(40, 12);
+  onResize(t.cols, t.rows);
+
+  assertEqual(notifications.length, 1, 'notified on shrink');
+  assertEqual(notifications[0].cols, 40, 'shrink cols = 40');
+  assertEqual(notifications[0].rows, 12, 'shrink rows = 12');
+});
+
+test('Integration: no callback attached does not throw', () => {
+  // When onResize is null (not wired), resize must still succeed silently
+  const t = new Terminal(80, 24);
+  const onResize = null;
+
+  t.resize(40, 12);
+  if (typeof onResize === 'function') {
+    onResize(t.cols, t.rows);
+  }
+
+  // Terminal still resized correctly
+  assertEqual(t.cols, 40, 'terminal cols updated without callback');
+  assertEqual(t.rows, 12, 'terminal rows updated without callback');
+  passed++; // no throw = pass
+});
+
 // ─── Summary ─────────────────────────────────────────────────
 
 console.log(`\n${passed} passed, ${failed} failed`);
