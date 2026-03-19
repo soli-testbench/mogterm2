@@ -13,9 +13,9 @@ The renderer (`src/renderer.js`) already has the core resize infrastructure from
 
 The **demo page** (`demo/index.html`) needs updates to exercise and demonstrate the resize feature:
 
-1. **CSS resize handle** — Add `resize: both; overflow: hidden;` and explicit dimensions to `#terminal-container` so users can drag to resize
-2. **Status indicator** — Add a visible element showing current `cols x rows` that updates in real time
-3. **Hook onResize** — Wire `renderer.onResize` to update the status display and simulate PTY notification
+1. **CSS resize handle** — Add `resize: both; overflow: hidden;` and explicit dimensions to `#terminal-container`; remove `width: fit-content` (conflicts with CSS resize)
+2. **Status indicator** — Add a `<div id="resize-status">` showing current `cols x rows` that updates in real time
+3. **Hook onResize** — Wire `renderer.onResize` to update the status display (simulates PTY notification)
 
 ## Architecture
 
