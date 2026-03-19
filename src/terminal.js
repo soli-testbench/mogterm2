@@ -33,14 +33,15 @@ export class Terminal {
    * @param {number} cols — number of columns (default 80)
    * @param {number} rows — number of rows (default 24)
    * @param {object} [options] — optional configuration
-   * @param {number} [options.scrollbackLines=1000] — max scrollback buffer lines
+   * @param {number} [options.scrollbackLines=1000] — max scrollback buffer lines (capped at 10000)
    */
   constructor(cols = 80, rows = 24, options = {}) {
     this.cols = cols;
     this.rows = rows;
 
-    // Scrollback buffer
-    this.scrollbackLines = options.scrollbackLines ?? 1000;
+    // Scrollback buffer (bounded to prevent unbounded memory growth)
+    const MAX_SCROLLBACK = 10000;
+    this.scrollbackLines = Math.min(Math.max(0, options.scrollbackLines ?? 1000), MAX_SCROLLBACK);
     this.scrollback = [];
 
     // Screen buffer: array of rows, each row is array of cells
@@ -610,15 +611,18 @@ export class Terminal {
    * Returns the full screen state as a serializable object.
    */
   getState() {
+    // Return shallow copies to prevent external mutation of internal state
+    const cellsCopy = this.cells.map(row => row.slice());
+    const scrollbackCopy = this.scrollback.map(row => row.slice());
     return {
       cols: this.cols,
       rows: this.rows,
-      cells: this.cells,
+      cells: cellsCopy,
       cursorRow: this.cursorRow,
       cursorCol: this.cursorCol,
       cursorVisible: this.cursorVisible,
       title: this.title,
-      scrollback: this.scrollback,
+      scrollback: scrollbackCopy,
       scrollbackLength: this.scrollback.length,
     };
   }
