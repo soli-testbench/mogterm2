@@ -35,7 +35,10 @@ export class Renderer {
     this.charWidth = 0;
     this.charHeight = 0;
 
-    // Resize callback — consumers set this to be notified of dimension changes (PTY/SIGWINCH)
+    // Resize callback — consumers set this to be notified of dimension changes.
+    // Design: the renderer owns pixel→cell translation; the consumer (e.g. a PTY
+    // host) wires this callback to propagate SIGWINCH / pty.resize(cols, rows).
+    // This decouples the renderer from any specific backend transport.
     this.onResize = null;
 
     // Debounce state

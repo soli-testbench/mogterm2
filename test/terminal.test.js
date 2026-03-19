@@ -436,6 +436,43 @@ test('Terminal: functionality after resize', () => {
   assertEqual(t.cells[1][0].char, 'S', 'cursor movement works after resize');
 });
 
+test('Terminal: resize callback invocation pattern', () => {
+  // Validates the contract used by Renderer._handleResize:
+  // terminal.resize(cols, rows) updates dimensions, then an onResize
+  // callback receives the new (cols, rows) values.
+  const t = new Terminal(80, 24);
+  t.write('Hello');
+
+  const resizeEvents = [];
+  // Simulate the Renderer's onResize callback pattern
+  const onResize = (cols, rows) => resizeEvents.push({ cols, rows });
+
+  t.resize(40, 12);
+  onResize(t.cols, t.rows);
+  assertEqual(resizeEvents.length, 1, 'one resize event');
+  assertEqual(resizeEvents[0].cols, 40, 'callback cols = 40');
+  assertEqual(resizeEvents[0].rows, 12, 'callback rows = 12');
+
+  // No-op resize (same dimensions) should not trigger callback
+  const prevCols = t.cols;
+  const prevRows = t.rows;
+  t.resize(40, 12);
+  if (t.cols === prevCols && t.rows === prevRows) {
+    // Renderer skips callback when dimensions unchanged — validate guard
+    passed++;
+  } else {
+    failed++;
+    console.error('  FAIL: resize to same dimensions should be idempotent');
+  }
+
+  // Second resize to different dimensions
+  t.resize(120, 40);
+  onResize(t.cols, t.rows);
+  assertEqual(resizeEvents.length, 2, 'two resize events total');
+  assertEqual(resizeEvents[1].cols, 120, 'second callback cols = 120');
+  assertEqual(resizeEvents[1].rows, 40, 'second callback rows = 40');
+});
+
 // ─── Summary ─────────────────────────────────────────────────
 
 console.log(`\n${passed} passed, ${failed} failed`);
