@@ -3,6 +3,7 @@
  *
  * Renders the terminal cell grid into a container element using a
  * pre-formatted <div> per row approach for simplicity and correctness.
+ * Supports scrollback buffer viewport navigation.
  */
 
 // Standard 16 ANSI colors (0-15)
@@ -30,6 +31,11 @@ export class Renderer {
     this.fgColor = '#cccccc';
     this.cursorColor = '#ffffff';
 
+    // Scroll state: number of rows scrolled UP from live position
+    this._scrollOffset = 0;
+    this._lastScrollbackLength = 0;
+    this._hasNewContent = false;
+
     this._setup();
   }
 
@@ -43,14 +49,69 @@ export class Renderer {
     this.container.style.overflow = 'hidden';
     this.container.style.whiteSpace = 'pre';
     this.container.style.position = 'relative';
+    this.container.setAttribute('tabindex', '0');
+    this.container.style.outline = 'none';
     this.container.innerHTML = '';
 
     const style = document.createElement('style');
     style.textContent =
       '.mogterm-vt-cursor { animation: mogterm-vt-blink 1s ease-in-out infinite; }' +
       '@keyframes mogterm-vt-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }' +
-      '@media (prefers-reduced-motion: reduce) { .mogterm-vt-cursor { animation: none; } }';
+      '@media (prefers-reduced-motion: reduce) { .mogterm-vt-cursor { animation: none; } }' +
+      '.mogterm-new-content { position: absolute; bottom: 4px; left: 50%; transform: translateX(-50%); ' +
+        'background: #005f87; color: #fff; padding: 2px 12px; border-radius: 3px; font-size: 12px; ' +
+        'cursor: pointer; z-index: 1; font-family: sans-serif; }';
     this.container.appendChild(style);
+
+    this.container.addEventListener('wheel', (e) => this._onWheel(e), { passive: false });
+    this.container.addEventListener('keydown', (e) => this._onKeyDown(e));
+  }
+
+  _onWheel(e) {
+    const state = this.terminal.getState();
+    const maxOffset = state.scrollbackLength;
+    if (maxOffset === 0) return;
+
+    e.preventDefault();
+    const lineDelta = e.deltaY > 0 ? -3 : 3;
+    this._scrollOffset = Math.max(0, Math.min(maxOffset, this._scrollOffset + lineDelta));
+
+    if (this._scrollOffset === 0) {
+      this._hasNewContent = false;
+    }
+
+    this.render();
+  }
+
+  _onKeyDown(e) {
+    const state = this.terminal.getState();
+    const maxOffset = state.scrollbackLength;
+
+    if (e.key === 'PageUp') {
+      e.preventDefault();
+      this._scrollOffset = Math.min(maxOffset, this._scrollOffset + state.rows);
+      this.render();
+    } else if (e.key === 'PageDown') {
+      e.preventDefault();
+      this._scrollOffset = Math.max(0, this._scrollOffset - state.rows);
+      if (this._scrollOffset === 0) this._hasNewContent = false;
+      this.render();
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      this._scrollOffset = 0;
+      this._hasNewContent = false;
+      this.render();
+    }
+  }
+
+  get isLive() {
+    return this._scrollOffset === 0;
+  }
+
+  scrollToBottom() {
+    this._scrollOffset = 0;
+    this._hasNewContent = false;
+    this.render();
   }
 
   /**
@@ -58,22 +119,55 @@ export class Renderer {
    */
   render() {
     const state = this.terminal.getState();
+    const scrollback = state.scrollback;
+
+    // Detect new content while scrolled up
+    if (scrollback.length > this._lastScrollbackLength && this._scrollOffset > 0) {
+      this._hasNewContent = true;
+    }
+    this._lastScrollbackLength = scrollback.length;
+
     const fragment = document.createDocumentFragment();
 
-    for (let r = 0; r < state.rows; r++) {
+    // Build the virtual buffer: scrollback rows + live grid rows
+    // Viewport shows `state.rows` rows ending at (total - _scrollOffset)
+    const totalRows = scrollback.length + state.rows;
+    const viewEnd = totalRows - this._scrollOffset;
+    const viewStart = viewEnd - state.rows;
+
+    for (let vi = 0; vi < state.rows; vi++) {
+      const globalRow = viewStart + vi;
       const rowEl = document.createElement('div');
       rowEl.style.height = (this.fontSize * this.lineHeight) + 'px';
 
+      let rowData;
+      let isLiveRow = false;
+      let liveRowIndex = -1;
+
+      if (globalRow < scrollback.length) {
+        rowData = scrollback[globalRow];
+      } else {
+        liveRowIndex = globalRow - scrollback.length;
+        rowData = state.cells[liveRowIndex];
+        isLiveRow = true;
+      }
+
+      if (!rowData) {
+        fragment.appendChild(rowEl);
+        continue;
+      }
+
       for (let c = 0; c < state.cols; c++) {
-        const cell = state.cells[r][c];
+        const cell = rowData[c];
+        if (!cell) continue;
         const span = document.createElement('span');
         span.textContent = cell.char;
 
-        // Apply attributes
         const styles = this._cellStyle(cell.attr);
 
-        // Cursor
-        if (r === state.cursorRow && c === state.cursorCol && state.cursorVisible) {
+        // Cursor only shown on live rows when at live position
+        if (isLiveRow && this._scrollOffset === 0 &&
+            liveRowIndex === state.cursorRow && c === state.cursorCol && state.cursorVisible) {
           styles.backgroundColor = this.cursorColor;
           styles.color = this.bgColor;
           span.classList.add('mogterm-vt-cursor');
@@ -94,6 +188,15 @@ export class Renderer {
 
     this.container.innerHTML = '';
     this.container.appendChild(fragment);
+
+    // Show "new content" indicator when scrolled up and new output arrived
+    if (this._hasNewContent && this._scrollOffset > 0) {
+      const indicator = document.createElement('div');
+      indicator.className = 'mogterm-new-content';
+      indicator.textContent = '\u2193 New output below';
+      indicator.addEventListener('click', () => this.scrollToBottom());
+      this.container.appendChild(indicator);
+    }
   }
 
   _cellStyle(attr) {
