@@ -611,9 +611,10 @@ export class Terminal {
    * Returns the full screen state as a serializable object.
    */
   getState() {
-    // Return shallow copies to prevent external mutation of internal state
-    const cellsCopy = this.cells.map(row => row.slice());
-    const scrollbackCopy = this.scrollback.map(row => row.slice());
+    // Deep-copy cells to prevent external mutation of internal state
+    const deepCopyRow = row => row.map(c => ({ char: c.char, attr: { ...c.attr } }));
+    const cellsCopy = this.cells.map(deepCopyRow);
+    const scrollbackCopy = this.scrollback.map(deepCopyRow);
     return {
       cols: this.cols,
       rows: this.rows,
