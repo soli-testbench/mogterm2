@@ -107,6 +107,20 @@
     const container = document.getElementById('terminal-container');
     const renderer = new Renderer(container, term);
 
+    // Wire onResize to notify backend/PTY of dimension changes.
+    // This is the SIGWINCH-equivalent notification path: whenever the
+    // terminal grid dimensions change, the callback fires with the new
+    // (cols, rows) so the backend can relay SIGWINCH to the child process.
+    //
+    // In production, replace the body with your transport, e.g.:
+    //   ws.send(JSON.stringify({ type: 'resize', cols, rows }));
+    renderer.onResize = (cols, rows) => {
+      const message = { type: 'resize', cols, rows };
+      console.log('[pty-resize]', JSON.stringify(message));
+      // Dispatch a custom event so other components can observe resize
+      container.dispatchEvent(new CustomEvent('pty-resize', { detail: message }));
+    };
+
     // Initial render
     renderer.render();
 

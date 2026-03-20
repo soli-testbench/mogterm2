@@ -30,6 +30,29 @@ export class Renderer {
     this.bgColor = '#1e1e1e';
     this.fgColor = '#cccccc';
     this.cursorColor = '#ffffff';
+    this.padding = 8;
+
+    // Cell dimensions (measured from rendered font)
+    this.charWidth = 0;
+    this.charHeight = 0;
+
+    // Resize callback — consumers MUST set this to propagate dimension changes
+    // to the backend (e.g. PTY SIGWINCH).
+    //
+    // Contract:
+    //   onResize: (cols: number, rows: number) => void
+    //
+    // Called after terminal.resize() succeeds, only when dimensions actually
+    // change. If no callback is attached, resize is silently local-only —
+    // the terminal still updates but the backend is NOT notified, which will
+    // cause a desync. Consumers are responsible for wiring this to their
+    // transport (WebSocket, IPC, etc.).
+    this.onResize = null;
+
+    // Debounce state
+    this._resizeTimer = null;
+    this._resizeDebounceMs = 100;
+    this._resizeObserver = null;
 
     // Scroll state: number of rows scrolled UP from live position
     this._scrollOffset = 0;
@@ -37,6 +60,8 @@ export class Renderer {
     this._hasNewContent = false;
 
     this._setup();
+    this._measureCellSize();
+    this._setupResizeObserver();
   }
 
   _setup() {
@@ -45,7 +70,7 @@ export class Renderer {
     this.container.style.fontFamily = this.fontFamily;
     this.container.style.fontSize = this.fontSize + 'px';
     this.container.style.lineHeight = this.lineHeight;
-    this.container.style.padding = '8px';
+    this.container.style.padding = this.padding + 'px';
     this.container.style.overflow = 'hidden';
     this.container.style.whiteSpace = 'pre';
     this.container.style.position = 'relative';
@@ -112,6 +137,82 @@ export class Renderer {
     this._scrollOffset = 0;
     this._hasNewContent = false;
     this.render();
+  }
+
+  /**
+   * Measure character cell dimensions from the rendered font.
+   * Creates a hidden off-screen span with the terminal's font settings,
+   * measures a single character, then removes the element.
+   */
+  _measureCellSize() {
+    const probe = document.createElement('span');
+    probe.style.fontFamily = this.fontFamily;
+    probe.style.fontSize = this.fontSize + 'px';
+    probe.style.lineHeight = String(this.lineHeight);
+    probe.style.position = 'absolute';
+    probe.style.visibility = 'hidden';
+    probe.style.whiteSpace = 'pre';
+    probe.textContent = 'W';
+
+    document.body.appendChild(probe);
+    const rect = probe.getBoundingClientRect();
+    this.charWidth = rect.width;
+    this.charHeight = this.fontSize * this.lineHeight;
+    document.body.removeChild(probe);
+  }
+
+  /**
+   * Attach a ResizeObserver to the container to detect size changes.
+   * Debounces resize events and recalculates terminal dimensions.
+   */
+  _setupResizeObserver() {
+    if (typeof ResizeObserver === 'undefined') return;
+
+    this._resizeObserver = new ResizeObserver((entries) => {
+      if (this._resizeTimer) clearTimeout(this._resizeTimer);
+      this._resizeTimer = setTimeout(() => {
+        this._handleResize(entries);
+      }, this._resizeDebounceMs);
+    });
+
+    this._resizeObserver.observe(this.container);
+  }
+
+  /**
+   * Handle a container resize: compute new cols/rows from pixel dimensions,
+   * update terminal state, notify backend, and re-render.
+   */
+  _handleResize(entries) {
+    if (!this.charWidth || !this.charHeight) return;
+
+    const entry = entries[0];
+    const { width, height } = entry.contentRect;
+
+    const cols = Math.max(1, Math.floor(width / this.charWidth));
+    const rows = Math.max(1, Math.floor(height / this.charHeight));
+
+    if (cols === this.terminal.cols && rows === this.terminal.rows) return;
+
+    this.terminal.resize(cols, rows);
+    this.render();
+
+    if (typeof this.onResize === 'function') {
+      this.onResize(cols, rows);
+    }
+  }
+
+  /**
+   * Disconnect the ResizeObserver and clean up timers.
+   */
+  dispose() {
+    if (this._resizeObserver) {
+      this._resizeObserver.disconnect();
+      this._resizeObserver = null;
+    }
+    if (this._resizeTimer) {
+      clearTimeout(this._resizeTimer);
+      this._resizeTimer = null;
+    }
   }
 
   /**
